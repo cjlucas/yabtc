@@ -117,3 +117,22 @@ func TestDecodeBitfieldPayload(t *testing.T) {
 		})
 	})
 }
+
+func TestEncodeRequestPayload(t *testing.T) {
+	Convey("When given a valid input", t, func() {
+		payload := new(RequestPayload)
+		payload.Index = 5
+		payload.Begin = 4
+		payload.Length = 16384
+
+		Convey("it should produce a valid payload", func() {
+			actual := EncodeRequestPayload(payload)
+			expected := []byte{
+				0x0, 0x0, 0x0, 0x5,
+				0x0, 0x0, 0x0, 0x4,
+				0x0, 0x0, 0x40, 0x0,
+			}
+			So(actual, ShouldResemble, expected)
+		})
+	})
+}
