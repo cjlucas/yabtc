@@ -6,20 +6,6 @@ import (
 	"math"
 )
 
-type RequestPayload struct {
-	Index  uint32
-	Begin  uint32
-	Length uint32
-}
-
-type PiecePayload struct {
-	Index uint32
-	Begin uint32
-	Block []byte
-}
-
-type CancelPayload RequestPayload
-
 func EncodeHavePayload(payload uint32) []byte {
 	var out [4]byte
 	binary.BigEndian.PutUint32(out[0:], payload)
@@ -58,64 +44,49 @@ func DecodeBitfieldPayload(payload []byte, pieces []piece.Piece) {
 	}
 }
 
-func EncodeRequestPayload(payload *RequestPayload) []byte {
-	var buf [12]byte
+func EncodeRequestPayload(index uint32, begin uint32, length uint32) []byte {
+	var payload [12]byte
 
-	binary.BigEndian.PutUint32(buf[0:4], uint32(payload.Index))
-	binary.BigEndian.PutUint32(buf[4:8], uint32(payload.Begin))
-	binary.BigEndian.PutUint32(buf[8:12], uint32(payload.Length))
+	binary.BigEndian.PutUint32(payload[0:4], uint32(index))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(begin))
+	binary.BigEndian.PutUint32(payload[8:12], uint32(length))
 
-	return buf[0:]
+	return payload[0:]
 }
 
-func DecodeRequestPayload(payload []byte) *RequestPayload {
-	var out RequestPayload
+func DecodeRequestPayload(payload []byte) (index uint32, begin uint32, length uint32) {
 
-	out.Index = binary.BigEndian.Uint32(payload[0:4])
-	out.Begin = binary.BigEndian.Uint32(payload[4:8])
-	out.Length = binary.BigEndian.Uint32(payload[8:12])
+	index = binary.BigEndian.Uint32(payload[0:4])
+	begin = binary.BigEndian.Uint32(payload[4:8])
+	length = binary.BigEndian.Uint32(payload[8:12])
 
-	return &out
+	return index, begin, length
 }
 
-func EncodeCancelPayload(payload *CancelPayload) []byte {
-	var buf [12]byte
-
-	binary.BigEndian.PutUint32(buf[0:4], uint32(payload.Index))
-	binary.BigEndian.PutUint32(buf[4:8], uint32(payload.Begin))
-	binary.BigEndian.PutUint32(buf[8:12], uint32(payload.Length))
-
-	return buf[0:]
+func EncodeCancelPayload(index uint32, begin uint32, length uint32) []byte {
+	return EncodeRequestPayload(index, begin, length)
 }
 
-func DecodeCancelPayload(payload []byte) *CancelPayload {
-	var out CancelPayload
-
-	out.Index = binary.BigEndian.Uint32(payload[0:4])
-	out.Begin = binary.BigEndian.Uint32(payload[4:8])
-	out.Length = binary.BigEndian.Uint32(payload[8:12])
-
-	return &out
+func DecodeCancelPayload(payload []byte) (index uint32, begin uint32, length uint32) {
+	return DecodeRequestPayload(payload)
 }
 
-func EncodePiecePayload(payload *PiecePayload) []byte {
-	buf := make([]byte, 8+len(payload.Block))
+func EncodePiecePayload(index uint32, begin uint32, block []byte) []byte {
+	payload := make([]byte, 8+len(block))
 
-	binary.BigEndian.PutUint32(buf[0:4], uint32(payload.Index))
-	binary.BigEndian.PutUint32(buf[4:8], uint32(payload.Begin))
-	copy(buf[8:], payload.Block)
+	binary.BigEndian.PutUint32(payload[0:4], uint32(index))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(begin))
+	copy(payload[8:], block)
 
-	return buf
+	return payload
 }
 
-func DecodePiecePayload(payload []byte) *PiecePayload {
-	var out PiecePayload
+func DecodePiecePayload(payload []byte) (index uint32, begin uint32, block []byte) {
+	index = binary.BigEndian.Uint32(payload[0:4])
+	begin = binary.BigEndian.Uint32(payload[4:8])
+	block = payload[8:]
 
-	out.Index = binary.BigEndian.Uint32(payload[0:4])
-	out.Begin = binary.BigEndian.Uint32(payload[4:8])
-	out.Block = payload[8:]
-
-	return &out
+	return index, begin, block
 }
 
 func EncodePortPayload(payload uint32) []byte {

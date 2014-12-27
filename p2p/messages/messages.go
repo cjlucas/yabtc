@@ -67,18 +67,24 @@ func BitfieldMessage(pieces []piece.Piece) *Message {
 }
 
 func RequestMessage(index uint, begin uint, length uint) *Message {
-	payload := &RequestPayload{uint32(index), uint32(begin), uint32(length)}
-	return New(REQUEST_MSG_ID, EncodeRequestPayload(payload))
+	payload := EncodeRequestPayload(
+		uint32(index),
+		uint32(begin),
+		uint32(length))
+	return New(REQUEST_MSG_ID, payload)
 }
 
 func PieceMessage(index uint, begin uint, block []byte) *Message {
-	payload := &PiecePayload{uint32(index), uint32(begin), block}
-	return New(PIECE_MSG_ID, EncodePiecePayload(payload))
+	payload := EncodePiecePayload(uint32(index), uint32(begin), block)
+	return New(PIECE_MSG_ID, payload)
 }
 
 func CancelMessage(index uint, begin uint, length uint) *Message {
-	payload := &CancelPayload{uint32(index), uint32(begin), uint32(length)}
-	return New(CANCEL_MSG_ID, EncodeCancelPayload(payload))
+	payload := EncodeCancelPayload(
+		uint32(index),
+		uint32(begin),
+		uint32(length))
+	return New(CANCEL_MSG_ID, payload)
 }
 
 func PortMessage(port uint) *Message {
