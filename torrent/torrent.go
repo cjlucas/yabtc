@@ -4,12 +4,12 @@ import (
 	"crypto/sha1"
 	"errors"
 	"github.com/zeebo/bencode"
-	"os"
+	"io/ioutil"
 )
 
 type Info struct {
 	Name        string `bencode:"name"`
-	Length      int64  `bencode:"length"`
+	Length      int    `bencode:"length"`
 	PieceLength int    `bencode:"piece length"`
 	Pieces      []byte `bencode:"pieces"`
 	Private     int    `bencode:"private"`
@@ -17,141 +17,45 @@ type Info struct {
 	MD5sum      string `bencode:"md5sum"`
 }
 
-// TODO use piece.Piece instead
-type Piece struct {
-	startByte, endByte int64
-	startFile, endFile int
-}
-
-type TorrentParser struct {
+type Torrent struct {
 	MetaInfo MetaInfo
-	Pieces   []Piece
+	Pieces   []FullPiece
 }
 
-func (t *TorrentParser) generatePieceInfo() {
-	t.Pieces = make([]Piece, t.MetaInfo.NumPieces())
-	files := t.MetaInfo.Files()
-	curFile := 0
-	curByte := int64(0)
-	for i, _ := range t.Pieces {
+func (t *Torrent) generatePieces() {
+	numPieces := len(t.Pieces) / sha1.Size
+
+	t.Pieces = make([]FullPiece, numPieces)
+
+	curByteOffset := 0
+	for i := range t.Pieces {
 		p := &t.Pieces[i]
-		bytesRemainingInPiece := int64(t.MetaInfo.Info.PieceLength)
-		p.startFile = curFile
-		p.startByte = curByte
-		for {
-			bytesRemainingInFile := files[curFile].Length - curByte
-			if bytesRemainingInFile == 0 {
-				break
-			}
+		p.Hash = make([]byte, 20)
 
-			if bytesRemainingInPiece < bytesRemainingInFile {
-				curByte += bytesRemainingInPiece
-				bytesRemainingInPiece = 0
-				break
-			} else {
-				bytesRemainingInPiece -= bytesRemainingInFile
-				curByte += bytesRemainingInFile
-				if curFile < len(files)-1 {
-					curFile++
-					curByte = 0
-				}
-			}
-		}
+		p.Index = i
+		p.Have = false
+		p.Length = t.MetaInfo.Info.PieceLength // TODO: this is incorrect for the final piece
+		p.ByteOffset = curByteOffset
+		copy(p.Hash, t.MetaInfo.Info.Pieces[i*20:(i+1)*20])
 
-		p.endFile = curFile
-		p.endByte = curByte
+		curByteOffset += p.Length
 	}
 }
 
-func (tp *TorrentParser) GenerateChecksum(p Piece) ([]byte, error) {
-	bytesToRead := make([]int64, p.endFile-p.startFile+1)
-
-	files := tp.MetaInfo.Files()
-	// Determine the number of bytes to read for each file
-	for i := p.startFile; i <= p.endFile; i++ {
-		bytesToReadForFile := &bytesToRead[i-p.startFile]
-
-		if p.startFile == p.endFile {
-			*bytesToReadForFile = p.endByte - p.startByte
-			break
-		}
-
-		info, err := os.Stat(files[i].Path())
-		if err != nil {
-			return nil, err
-		}
-
-		fileSize := info.Size()
-
-		switch i {
-		case p.startFile:
-			*bytesToReadForFile = fileSize - p.startByte
-		case p.endFile:
-			*bytesToReadForFile = p.endByte
-		default:
-			*bytesToReadForFile = fileSize
-		}
-
+func ParseFile(fname string) (*Torrent, error) {
+	if buf, err := ioutil.ReadFile(fname); err != nil {
+		return nil, err
+	} else {
+		return ParseBytes(buf)
 	}
-
-	sha := sha1.New()
-
-	for i := p.startFile; i <= p.endFile; i++ {
-		bufSize := bytesToRead[i-p.startFile]
-		buf := make([]byte, bufSize)
-
-		fp, err := os.Open(files[i].Path())
-		if err != nil {
-			return nil, err
-		}
-
-		defer fp.Close()
-
-		switch i {
-		case p.startFile:
-			fp.ReadAt(buf, p.startByte)
-		default:
-			fp.Read(buf)
-		}
-
-		sha.Write(buf)
-	}
-
-	return sha.Sum(nil), nil
 }
 
-func ParseFile(fname string) (*TorrentParser, error) {
-	stat, err := os.Stat(fname)
-
-	if err != nil {
-		return nil, errors.New("Could not stat file")
-	}
-
-	buf := make([]byte, stat.Size())
-
-	fp, err := os.Open(fname)
-
-	if err != nil {
-		return nil, errors.New("Could not open file")
-	}
-
-	defer fp.Close()
-
-	n, err := fp.Read(buf)
-
-	if int64(n) != stat.Size() {
-		return nil, errors.New("Error reading file")
-	}
-
-	return ParseBytes(buf)
-}
-
-func ParseBytes(b []byte) (*TorrentParser, error) {
-	var p TorrentParser
+func ParseBytes(b []byte) (*Torrent, error) {
+	var p Torrent
 	if err := bencode.DecodeBytes(b, &p.MetaInfo); err != nil {
 		return nil, errors.New("Error decoding torrent")
 	}
 
-	p.generatePieceInfo()
+	p.generatePieces()
 	return &p, nil
 }
