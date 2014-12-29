@@ -93,3 +93,58 @@ func TestBlockValid(t *testing.T) {
 		})
 	})
 }
+
+func TestDetermineAccessPoints(t *testing.T) {
+	fs := simpleFileStream
+
+	Convey("When given a valid block spanning one file", t, func() {
+		block := Block{0, 100}
+
+		Convey("it should return a single correct access point", func() {
+			points := fs.determineAccessPoints(block)
+			So(len(points), ShouldEqual, 1)
+
+			p := points[0]
+			So(*p.File, ShouldResemble, fs.Files[0])
+			So(p.Offset, ShouldEqual, 0)
+			So(p.BytesExpected, ShouldEqual, 100)
+		})
+	})
+
+	Convey("When given a valid block spanning multiple files", t, func() {
+		block := Block{0, 1700}
+		points := fs.determineAccessPoints(block)
+
+		Convey("It should return 3 access points", func() {
+			So(len(points), ShouldEqual, 3)
+		})
+
+		Convey("It should have the correct access points", func() {
+			for i := range fs.Files {
+				p := points[i]
+				So(*p.File, ShouldResemble, fs.Files[i])
+				So(p.BytesExpected, ShouldEqual, fs.Files[i].Length)
+				So(p.Offset, ShouldEqual, 0)
+			}
+		})
+	})
+
+	Convey("When given a valid block in the middle of a file stream", t, func() {
+		block := Block{1200, 400}
+		points := fs.determineAccessPoints(block)
+
+		Convey("It should return 2 access points", func() {
+			So(len(points), ShouldEqual, 2)
+		})
+
+		Convey("It should return the correct access points", func() {
+			So(*points[0].File, ShouldResemble, fs.Files[1])
+			So(points[0].Offset, ShouldEqual, 200)
+			So(points[0].BytesExpected, ShouldEqual, 300)
+
+			So(*points[1].File, ShouldResemble, fs.Files[2])
+			So(points[1].Offset, ShouldEqual, 0)
+			So(points[1].BytesExpected, ShouldEqual, 100)
+		})
+	})
+}
