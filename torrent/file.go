@@ -6,7 +6,7 @@ import (
 
 type File struct {
 	PathComponents []string `bencode:"path"`
-	Length         int64    `bencode:"length"`
+	Length         int      `bencode:"length"`
 	MD5sum         string   `bencode:"md5sum"`
 }
 
