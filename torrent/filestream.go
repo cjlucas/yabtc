@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"errors"
-	"fmt"
+	"os"
 )
 
 type Block struct {
@@ -23,6 +23,12 @@ type FullPiece struct {
 type FileStream struct {
 	Root  string
 	Files []File
+}
+
+type fileAccessPoint struct {
+	File          *File
+	Offset        int
+	BytesExpected int
 }
 
 func NewFileStream(root string, files []File) *FileStream {
@@ -44,27 +50,110 @@ func (fs *FileStream) BlockValid(block Block) bool {
 		block.Offset+block.Length <= fs.TotalLength()
 }
 
-func (fs *FileStream) seekToOffset(blockOffset int) (f *File, fileOffset int) {
-	bytesLeft := blockOffset
+func (fs *FileStream) nextFile(curFile *File) *File {
+	for i := range fs.Files {
+		if curFile == &fs.Files[i] {
+			return &fs.Files[i+1]
+		}
+	}
+
+	return nil
+}
+
+func openFileAndSeek(fpath string, seekPos int) (*os.File, error) {
+	fi, err := os.Open(fpath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := fi.Seek(int64(seekPos), 0); err != nil {
+		fi.Close()
+		return nil, err
+	}
+
+	return fi, nil
+}
+
+// block must be valid
+func (fs *FileStream) determineAccessPoints(block Block) []fileAccessPoint {
+	var points []fileAccessPoint
+	var curFile *File
+	var curOffset int
+
+	// Find start of block
+	bytesLeftUntilBlockStart := block.Offset
 
 	for i := range fs.Files {
 		fileSize := int(fs.Files[i].Length)
-		if bytesLeft < fileSize {
-			return &fs.Files[i], bytesLeft
+		if bytesLeftUntilBlockStart < fileSize {
+			curFile = &fs.Files[i]
+			curOffset = bytesLeftUntilBlockStart
+			break
 		}
-
-		bytesLeft -= fileSize
+		bytesLeftUntilBlockStart -= fileSize
 	}
 
-	panic(fmt.Errorf("Could not find file offset for byte offset: %d", blockOffset))
+	// Generate acccess points
+
+	bytesLeft := block.Length
+	for bytesLeft > 0 {
+		var p fileAccessPoint
+
+		bytesLeftInFile := curFile.Length - curOffset
+		// If
+		if bytesLeft > bytesLeftInFile {
+			p = fileAccessPoint{curFile, curOffset, bytesLeftInFile}
+			curFile = fs.nextFile(curFile)
+			curOffset = 0
+			bytesLeft -= bytesLeftInFile
+		} else {
+			p = fileAccessPoint{curFile, curOffset, bytesLeft}
+			bytesLeft -= bytesLeft
+		}
+
+		points = append(points, p)
+	}
+
+	return points
 }
 
 func (fs *FileStream) WriteBlock(block Block) error {
+	if !fs.BlockValid(block) {
+		panic("Received an invalid block")
+	}
+
 	return errors.New("WriteBlock() not implemented")
 }
 
 func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
-	return nil, errors.New("ReadBlock() not implemented")
+	if !fs.BlockValid(block) {
+		panic("Received an invalid block")
+	}
+
+	data := make([]byte, block.Length)
+
+	bytesRead := 0
+	for _, p := range fs.determineAccessPoints(block) {
+		if fp, err := openFileAndSeek(p.File.Path(), p.Offset); err != nil {
+			return nil, err
+		} else {
+			n, err := fp.Read(data[bytesRead:])
+			fp.Close()
+
+			if err != nil {
+				return nil, err
+			}
+
+			if n != p.BytesExpected {
+				return nil, errors.New("Received unexpected amount of data")
+			}
+
+			bytesRead += n
+		}
+	}
+
+	return data, nil
 }
 
 func (fs *FileStream) CalculatePieceChecksum(piece FullPiece) bool {
@@ -72,6 +161,7 @@ func (fs *FileStream) CalculatePieceChecksum(piece FullPiece) bool {
 
 	data, err := fs.ReadBlock(block)
 
+	// If there was any error reading the data, return false
 	if err != nil {
 		return false
 	}
