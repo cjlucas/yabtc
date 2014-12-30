@@ -58,6 +58,10 @@ func (t *Torrent) IsMultiFile() bool {
 	return len(t.MetaInfo.Info.Files) > 0
 }
 
+func (t *Torrent) PieceSize() int {
+	return t.MetaInfo.Info.PieceLength
+}
+
 func (t *Torrent) Files() FileList {
 	var files FileList
 	info := t.MetaInfo.Info
@@ -107,6 +111,8 @@ func (t *Torrent) generatePieces() {
 
 	t.Pieces = make([]FullPiece, numPieces)
 
+	files := t.Files()
+
 	curByteOffset := 0
 	for i := 0; i < t.NumPieces(); i++ {
 		isLastPiece := i == t.NumPieces()-1
@@ -116,9 +122,9 @@ func (t *Torrent) generatePieces() {
 		p.Index = i
 		p.Have = false
 		if isLastPiece {
-			p.Length = 1162936320 % t.MetaInfo.Info.PieceLength
+			p.Length = files.TotalLength() % t.PieceSize()
 		} else {
-			p.Length = t.MetaInfo.Info.PieceLength
+			p.Length = t.PieceSize()
 		}
 		p.ByteOffset = curByteOffset
 		copy(p.Hash, t.MetaInfo.Info.Pieces[i*20:(i+1)*20])
