@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"errors"
 	"os"
-	"path"
 )
 
 type Block struct {
@@ -39,10 +38,6 @@ func (fs *FileStream) BlockValid(block Block) bool {
 	return block.Offset >= 0 &&
 		block.Length > 0 &&
 		block.Offset+block.Length <= fs.Files.TotalLength()
-}
-
-func (fs *FileStream) FilePathFromRoot(f *File) string {
-	return path.Join(fs.Root, f.Path())
 }
 
 func (fs *FileStream) nextFile(curFile *File) *File {
@@ -124,7 +119,7 @@ func (fs *FileStream) WriteBlock(block Block, data []byte) error {
 
 	bytesWritten := 0
 	for _, p := range fs.determineAccessPoints(block) {
-		fpath := fs.FilePathFromRoot(p.File)
+		fpath := p.File.PathFromRoot(fs.Root)
 		if fp, err := openFileAndSeek(fpath, p.Offset, os.O_WRONLY); err != nil {
 			return err
 		} else {
@@ -155,7 +150,7 @@ func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
 
 	bytesRead := 0
 	for _, p := range fs.determineAccessPoints(block) {
-		fpath := fs.FilePathFromRoot(p.File)
+		fpath := p.File.PathFromRoot(fs.Root)
 		if fp, err := openFileAndSeek(fpath, p.Offset, os.O_RDONLY); err != nil {
 			return nil, err
 		} else {

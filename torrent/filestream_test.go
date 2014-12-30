@@ -139,31 +139,3 @@ func TestDetermineAccessPoints(t *testing.T) {
 		})
 	})
 }
-
-func TestFilePathFromRoot(t *testing.T) {
-	Convey("When given a filestream consisting of one file", t, func() {
-		f := FileList{
-			File{[]string{"file1.mp3"}, 100, ""},
-		}
-
-		fs := FileStream{"/root", f}
-		Convey("It should return the correct path", func() {
-			actual := fs.FilePathFromRoot(&f[0])
-			So(actual, ShouldEqual, "/root/file1.mp3")
-		})
-	})
-
-	Convey("When given a filestream consisting of multiple files", t, func() {
-		f := FileList{
-			File{[]string{"file1.mp3"}, 100, ""},
-			File{[]string{"path", "to", "file2.mp3"}, 100, ""},
-		}
-
-		fs := FileStream{"/root", f}
-
-		Convey("It should return the correct path for each file", func() {
-			So(fs.FilePathFromRoot(&f[0]), ShouldEqual, "/root/file1.mp3")
-			So(fs.FilePathFromRoot(&f[1]), ShouldEqual, "/root/path/to/file2.mp3")
-		})
-	})
-}

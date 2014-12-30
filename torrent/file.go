@@ -16,6 +16,10 @@ func (f *File) Path() string {
 	return path.Join(f.PathComponents...)
 }
 
+func (f *File) PathFromRoot(root string) string {
+	return path.Join(root, f.Path())
+}
+
 func (fl *FileList) TotalLength() int {
 	total := 0
 	for _, f := range *fl {
