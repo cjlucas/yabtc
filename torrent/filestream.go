@@ -60,14 +60,14 @@ func (fs *FileStream) nextFile(curFile *File) *File {
 	return nil
 }
 
-func openFileAndSeek(fpath string, seekPos int) (*os.File, error) {
-	fi, err := os.Open(fpath)
+func openFileAndSeek(fpath string, seekPos int, mode int) (*os.File, error) {
+	fi, err := os.OpenFile(fpath, mode, 0644)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := fi.Seek(int64(seekPos), 0); err != nil {
+	if _, err := fi.Seek(int64(seekPos), os.SEEK_SET); err != nil {
 		fi.Close()
 		return nil, err
 	}
@@ -118,12 +118,36 @@ func (fs *FileStream) determineAccessPoints(block Block) []fileAccessPoint {
 	return points
 }
 
-func (fs *FileStream) WriteBlock(block Block) error {
+func (fs *FileStream) WriteBlock(block Block, data []byte) error {
 	if !fs.BlockValid(block) {
 		panic("Received an invalid block")
 	}
 
-	return errors.New("WriteBlock() not implemented")
+	if len(data) != block.Length {
+		penic("Length of data does not match block.Length")
+	}
+
+	bytesWritten := 0
+	for _, p := range fs.determineAccessPoints(block) {
+		if fp, err := openFileAndSeek(p.File.Path(), p.Offset, os.O_WRONLY); err != nil {
+			return nil, err
+		} else {
+			n, err := fp.Write(data[bytesWritten:])
+			fp.Close()
+
+			if err != nil {
+				return nil, err
+			}
+
+			if n != p.BytesExpected {
+				return nil, errors.New("Wrote an unexpected amount of data")
+			}
+
+			bytesWritten += n
+		}
+	}
+
+	return nil
 }
 
 func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
@@ -135,7 +159,7 @@ func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
 
 	bytesRead := 0
 	for _, p := range fs.determineAccessPoints(block) {
-		if fp, err := openFileAndSeek(p.File.Path(), p.Offset); err != nil {
+		if fp, err := openFileAndSeek(p.File.Path(), p.Offset, os.O_RDONLY); err != nil {
 			return nil, err
 		} else {
 			n, err := fp.Read(data[bytesRead:])
