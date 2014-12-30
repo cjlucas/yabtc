@@ -1,10 +1,10 @@
 package torrent
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"errors"
 	"os"
+	"path"
 )
 
 type Block struct {
@@ -22,7 +22,7 @@ type FullPiece struct {
 
 type FileStream struct {
 	Root  string
-	Files []File
+	Files FileList
 }
 
 type fileAccessPoint struct {
@@ -35,19 +35,14 @@ func NewFileStream(root string, files []File) *FileStream {
 	return &FileStream{root, files}
 }
 
-func (fs *FileStream) TotalLength() int {
-	total := 0
-	for i := range fs.Files {
-		total += int(fs.Files[i].Length)
-	}
-
-	return total
-}
-
 func (fs *FileStream) BlockValid(block Block) bool {
 	return block.Offset >= 0 &&
 		block.Length > 0 &&
-		block.Offset+block.Length <= fs.TotalLength()
+		block.Offset+block.Length <= fs.Files.TotalLength()
+}
+
+func (fs *FileStream) FilePathFromRoot(f *File) string {
+	return path.Join(fs.Root, f.Path())
 }
 
 func (fs *FileStream) nextFile(curFile *File) *File {
@@ -124,23 +119,24 @@ func (fs *FileStream) WriteBlock(block Block, data []byte) error {
 	}
 
 	if len(data) != block.Length {
-		penic("Length of data does not match block.Length")
+		panic("Length of data does not match block.Length")
 	}
 
 	bytesWritten := 0
 	for _, p := range fs.determineAccessPoints(block) {
-		if fp, err := openFileAndSeek(p.File.Path(), p.Offset, os.O_WRONLY); err != nil {
-			return nil, err
+		fpath := fs.FilePathFromRoot(p.File)
+		if fp, err := openFileAndSeek(fpath, p.Offset, os.O_WRONLY); err != nil {
+			return err
 		} else {
 			n, err := fp.Write(data[bytesWritten:])
 			fp.Close()
 
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			if n != p.BytesExpected {
-				return nil, errors.New("Wrote an unexpected amount of data")
+				return errors.New("Wrote an unexpected amount of data")
 			}
 
 			bytesWritten += n
@@ -159,7 +155,8 @@ func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
 
 	bytesRead := 0
 	for _, p := range fs.determineAccessPoints(block) {
-		if fp, err := openFileAndSeek(p.File.Path(), p.Offset, os.O_RDONLY); err != nil {
+		fpath := fs.FilePathFromRoot(p.File)
+		if fp, err := openFileAndSeek(fpath, p.Offset, os.O_RDONLY); err != nil {
 			return nil, err
 		} else {
 			n, err := fp.Read(data[bytesRead:])
@@ -180,15 +177,18 @@ func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
 	return data, nil
 }
 
-func (fs *FileStream) CalculatePieceChecksum(piece FullPiece) bool {
+func (fs *FileStream) CalculatePieceChecksum(piece FullPiece) []byte {
 	block := Block{piece.ByteOffset, piece.Length}
 
 	data, err := fs.ReadBlock(block)
 
 	// If there was any error reading the data, return false
 	if err != nil {
-		return false
+		return nil
 	}
 
-	return bytes.Equal(piece.Hash, sha1.New().Sum(data))
+	sha := sha1.New()
+	sha.Write(data)
+
+	return sha.Sum(nil)
 }

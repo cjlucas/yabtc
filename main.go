@@ -6,13 +6,14 @@ import "github.com/cjlucas/yabtc/p2p/messages"
 import "github.com/cjlucas/yabtc/p2p"
 import "fmt"
 import "os"
+import "bytes"
 
-func main() {
-	tp, _ := torrent.ParseFile(os.Args[1])
-	hash := tp.MetaInfo.InfoHash()
+func dunno() {
+	t, _ := torrent.ParseFile(os.Args[1])
+	hash := t.InfoHash()
 	fmt.Printf("%x\n", hash)
 
-	resp, err := tracker.Announce(tp.MetaInfo.Announce, hash)
+	resp, err := tracker.Announce(t.MetaInfo.Announce, hash)
 
 	if err != nil {
 		panic(err)
@@ -38,4 +39,24 @@ func main() {
 			conn.WriteChan <- *messages.RequestMessage(0, 0, 1024)
 		}
 	}
+}
+
+func checkpiece() {
+	t, _ := torrent.ParseFile(os.Args[1])
+	hash := t.InfoHash()
+	fmt.Printf("%x\n", hash)
+
+	fs := torrent.FileStream{"/Users/chris/Downloads", t.Files()}
+
+	for _, p := range t.Pieces {
+		if checksum := fs.CalculatePieceChecksum(p); bytes.Equal(checksum, p.Hash) {
+			fmt.Printf("PASSED\n")
+		} else {
+			fmt.Printf("FAILED %x\n", p.Hash)
+		}
+	}
+}
+
+func main() {
+	checkpiece()
 }

@@ -10,6 +10,17 @@ type File struct {
 	MD5sum         string   `bencode:"md5sum"`
 }
 
+type FileList []File
+
 func (f *File) Path() string {
 	return path.Join(f.PathComponents...)
+}
+
+func (fl *FileList) TotalLength() int {
+	total := 0
+	for _, f := range *fl {
+		total += int(f.Length)
+	}
+
+	return total
 }

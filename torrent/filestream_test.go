@@ -8,7 +8,7 @@ import (
 
 var goPath = os.Getenv("GOPATH")
 
-var norm = []File{
+var norm = FileList{
 	File{[]string{"file1.mp3"}, 1000, ""},
 	File{[]string{"file2.mp3"}, 500, ""},
 	File{[]string{"file3.mp3"}, 200, ""},
@@ -22,15 +22,6 @@ func TestNewFileStream(t *testing.T) {
 			actual := NewFileStream(goPath, norm)
 			So(actual.Root, ShouldEqual, goPath)
 			So(actual.Files, ShouldResemble, norm)
-		})
-	})
-}
-
-func TestTotalLength(t *testing.T) {
-	Convey("When given valid arguments", t, func() {
-		in := simpleFileStream
-		Convey("It should return the sum of each file's length", func() {
-			So(in.TotalLength(), ShouldEqual, 1700)
 		})
 	})
 }
@@ -145,6 +136,34 @@ func TestDetermineAccessPoints(t *testing.T) {
 			So(*points[1].File, ShouldResemble, fs.Files[2])
 			So(points[1].Offset, ShouldEqual, 0)
 			So(points[1].BytesExpected, ShouldEqual, 100)
+		})
+	})
+}
+
+func TestFilePathFromRoot(t *testing.T) {
+	Convey("When given a filestream consisting of one file", t, func() {
+		f := FileList{
+			File{[]string{"file1.mp3"}, 100, ""},
+		}
+
+		fs := FileStream{"/root", f}
+		Convey("It should return the correct path", func() {
+			actual := fs.FilePathFromRoot(&f[0])
+			So(actual, ShouldEqual, "/root/file1.mp3")
+		})
+	})
+
+	Convey("When given a filestream consisting of multiple files", t, func() {
+		f := FileList{
+			File{[]string{"file1.mp3"}, 100, ""},
+			File{[]string{"path", "to", "file2.mp3"}, 100, ""},
+		}
+
+		fs := FileStream{"/root", f}
+
+		Convey("It should return the correct path for each file", func() {
+			So(fs.FilePathFromRoot(&f[0]), ShouldEqual, "/root/file1.mp3")
+			So(fs.FilePathFromRoot(&f[1]), ShouldEqual, "/root/path/to/file2.mp3")
 		})
 	})
 }
