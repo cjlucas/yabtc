@@ -2,11 +2,18 @@ package tracker
 
 import (
 	"fmt"
-	"github.com/cjlucas/yabtc/p2p"
-	"github.com/zeebo/bencode"
 	"net/http"
 	"net/url"
+
+	"github.com/cjlucas/yabtc/p2p"
+	"github.com/zeebo/bencode"
 )
+
+type peer struct {
+	Ip     string `bencode:"ip"`
+	Port   uint32 `bencode:"port"`
+	PeerId string `bencode:"peer id"`
+}
 
 type AnnounceResponse struct {
 	FailureReason  string             `bencode:"failure reason"`
@@ -59,9 +66,16 @@ func Announce(announceUrl string, infoHash []byte) (*AnnounceResponse, error) {
 }
 
 func parsePeersDictFormat(rawPeers []byte) []p2p.Peer {
-	var peers []p2p.Peer
-	if err := bencode.DecodeBytes(rawPeers, &peers); err != nil {
+	var peerList []peer
+	if err := bencode.DecodeBytes(rawPeers, peerList); err != nil {
 		panic(err)
+	}
+
+	peers := make([]p2p.Peer, len(peerList))
+
+	for i, p := range peerList {
+		peer := p2p.NewPeer(p.Ip, int(p.Port), []byte(p.PeerId))
+		peers[i] = *peer
 	}
 
 	return peers
@@ -76,14 +90,17 @@ func parsePeersBinaryFormat(rawPeers []byte) []p2p.Peer {
 	}
 	curByte += 1
 	for i, _ := range peers {
-		p := &peers[i]
-
 		ipBytes := rawPeers[curByte : curByte+4]
-		p.Ip = fmt.Sprintf("%d.%d.%d.%d",
+		ip := fmt.Sprintf("%d.%d.%d.%d",
 			ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
-		p.Port = uint32(rawPeers[curByte+4])
-		p.Port = p.Port << 8
-		p.Port |= uint32(rawPeers[curByte+5])
+
+		port := uint32(rawPeers[curByte+4])
+		port = port << 8
+		port |= uint32(rawPeers[curByte+5])
+
+		peer := p2p.NewPeer(ip, int(port), nil)
+		peers[i] = *peer
+
 		curByte += 6
 	}
 

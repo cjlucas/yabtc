@@ -1,8 +1,6 @@
 package torrent
 
-import (
-	"path"
-)
+import "path"
 
 type File struct {
 	PathComponents []string `bencode:"path"`

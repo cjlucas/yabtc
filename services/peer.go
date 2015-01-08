@@ -1,54 +1,28 @@
-package p2p
+package services
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/cjlucas/yabtc/p2p/messages"
 	"io"
 	"net"
+
+	"github.com/cjlucas/yabtc/p2p"
+	"github.com/cjlucas/yabtc/p2p/messages"
+	"github.com/cjlucas/yabtc/piece"
 )
 
-type P2PConn struct {
-	Conn      net.Conn
-	ReadChan  chan messages.Message
-	WriteChan chan messages.Message
-}
-
-// TODO Use Peer as input arg
-func New(addr string) (*P2PConn, error) {
-	var p2pConn P2PConn
-	conn, err := net.Dial("tcp", addr)
-	p2pConn.Conn = conn
-
-	if err != nil {
-		return nil, err
-	}
-
-	/*
-	 *_, err = readHandshake(conn)
-	 *if err != nil {
-	 *    return nil, err
-	 *}
-	 */
-
-	p2pConn.ReadChan = make(chan messages.Message)
-	p2pConn.WriteChan = make(chan messages.Message)
-
-	return &p2pConn, nil
-}
-
-func (c *P2PConn) PerformHandshake(infoHash []byte, peerId []byte) error {
-	// TODO: use peerid
-	hs := NewHandshake("BitTorrent protocol", infoHash, peerId)
-
-	c.Conn.Write(hs.Bytes())
-	readHandshake(c.Conn)
-	return nil
-}
-
-func (c *P2PConn) StartHandlers() {
-	go readHandler(c.Conn, c.ReadChan)
-	go writeHandler(c.Conn, c.WriteChan)
+type Peer struct {
+	Addr          net.Addr
+	PeerId        []byte
+	Conn          net.Conn
+	Pieces        []piece.Piece
+	Choked        bool
+	Interested    bool
+	BytesReceived int
+	BytesSent     int
+	ReadChan      chan messages.Message
+	WriteChan     chan messages.Message
 }
 
 func readBytes(r io.Reader, buf []byte, count int) error {
@@ -65,8 +39,8 @@ func readBytes(r io.Reader, buf []byte, count int) error {
 	return nil
 }
 
-func readHandshake(r io.Reader) (*Handshake, error) {
-	var resp Handshake
+func readHandshake(r io.Reader) (*p2p.Handshake, error) {
+	var resp p2p.Handshake
 	buf := make([]byte, 1)
 	if _, err := r.Read(buf); err != nil {
 		panic(err)
@@ -128,5 +102,58 @@ func writeHandler(conn net.Conn, c chan messages.Message) {
 		msg := <-c
 		n, _ := conn.Write(msg.Bytes())
 		fmt.Printf("Wrote %d bytes\n", n)
+	}
+}
+
+func (p *Peer) PerformHandshake(infoHash []byte, peerId []byte) error {
+	if err := p.Connect(); err != nil {
+		return err
+	}
+
+	hs := p2p.NewHandshake("BitTorrent protocol", infoHash, peerId)
+	if _, err := p.Conn.Write(hs.Bytes()); err != nil {
+		return err
+	}
+
+	if hs_resp, err := readHandshake(p.Conn); err != nil {
+		return err
+	} else if !bytes.Equal(hs_resp.PeerId[:], p.PeerId) {
+		return fmt.Errorf("peer ID does not match")
+	}
+
+	msg, err := readMessage(p.Conn)
+	if err != nil {
+		return err
+	}
+
+	if msg.Id != messages.BITFIELD_MSG_ID {
+		return fmt.Errorf("received unexpected message: %d", msg.Id)
+	}
+
+	messages.DecodeBitfieldPayload(msg.Payload, p.Pieces)
+	p.Disconnect()
+
+	return nil
+}
+
+func (p *Peer) IsConnected() bool {
+	return p.Conn != nil
+}
+
+func (p *Peer) Connect() error {
+	if conn, err := net.Dial(p.Addr.Network(), p.Addr.String()); err != nil {
+		return err
+	} else {
+		p.Conn = conn
+	}
+
+	return nil
+
+}
+
+func (p *Peer) Disconnect() {
+	if p.IsConnected() {
+		p.Conn.Close()
+		p.Conn = nil
 	}
 }

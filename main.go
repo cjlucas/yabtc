@@ -1,62 +1,82 @@
 package main
 
-import "github.com/cjlucas/yabtc/torrent"
-import "github.com/cjlucas/yabtc/tracker"
-import "github.com/cjlucas/yabtc/p2p/messages"
-import "github.com/cjlucas/yabtc/p2p"
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/cjlucas/yabtc/p2p"
+	"github.com/cjlucas/yabtc/torrent"
+)
+
+import (
+	"github.com/cjlucas/yabtc/services"
+	"github.com/cjlucas/yabtc/services/swarm_manager"
+)
+
 import "os"
-import "bytes"
 
-func dunno() {
-	t, _ := torrent.ParseFile(os.Args[1])
-	hash := t.InfoHash()
-	fmt.Printf("%x\n", hash)
-
-	resp, err := tracker.Announce(t.MetaInfo.Announce, hash)
-
-	if err != nil {
-		panic(err)
-	}
-
-	peer := resp.Peers()[0]
-
-	conn, err := p2p.New(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
-
-	if err != nil {
-		panic(err)
-	}
-
-	conn.PerformHandshake(hash, hash)
-
-	conn.StartHandlers()
-
-	for {
-		msg := <-conn.ReadChan
-		if msg.Id == 5 {
-			conn.WriteChan <- *messages.InterestedMessage()
-		} else if msg.Id == 1 {
-			conn.WriteChan <- *messages.RequestMessage(0, 0, 1024)
-		}
-	}
-}
+/*
+ *func dunno() {
+ *    t, _ := torrent.ParseFile(os.Args[1])
+ *    hash := t.InfoHash()
+ *    fmt.Printf("%x\n", hash)
+ *
+ *    resp, err := tracker.Announce(t.Announce, hash)
+ *
+ *    if err != nil {
+ *        panic(err)
+ *    }
+ *
+ *    peer := resp.Peers()[0]
+ *
+ *    conn, err := p2p.New(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
+ *
+ *    if err != nil {
+ *        panic(err)
+ *    }
+ *
+ *    conn.PerformHandshake(hash, hash)
+ *
+ *    conn.StartHandlers()
+ *
+ *    for {
+ *        msg := <-conn.ReadChan
+ *        if msg.Id == 5 {
+ *            conn.WriteChan <- *messages.InterestedMessage()
+ *        } else if msg.Id == 1 {
+ *            conn.WriteChan <- *messages.RequestMessage(0, 0, 1024)
+ *        }
+ *    }
+ *}
+ */
 
 func checkpiece() {
-	t, _ := torrent.ParseFile(os.Args[1])
-	hash := t.InfoHash()
-	fmt.Printf("%x\n", hash)
+	metadata, _ := torrent.ParseFile(os.Args[1])
 
-	fs := torrent.FileStream{"/Users/chris/Downloads", t.Files()}
+	t := services.NewTorrent("/Users/chris/Downloads", *metadata)
 
-	for _, p := range t.Pieces {
-		if checksum := fs.CalculatePieceChecksum(p); bytes.Equal(checksum, p.Hash) {
-			fmt.Printf("PASSED\n")
-		} else {
-			fmt.Printf("FAILED %x\n", p.Hash)
-		}
-	}
+	tm := services.NewTorrentManager()
+
+	tm.AddTorrent(t)
+
+	tm.CheckTorrent(t)
+
+	tm.Run()
+}
+
+func testSwarmManager() {
+	metadata, _ := torrent.ParseFile(os.Args[1])
+	fmt.Println(metadata.InfoHashString())
+
+	sm := swarm_manager.NewSwarmManager()
+
+	sm.RegisterTorrent(metadata)
+
+	sm.VerifyPeer(metadata.InfoHashString(), p2p.NewPeer("89.85.48.189", 51413, nil))
+	sm.VerifyPeer(metadata.InfoHashString(), p2p.NewPeer("95.211.141.107", 51523, nil))
+
+	swarm_manager.Run(sm)
 }
 
 func main() {
-	checkpiece()
+	testSwarmManager()
 }
