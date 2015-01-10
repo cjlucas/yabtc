@@ -1,0 +1,6 @@
+[submodule "src/github.com/jtols/gls"]
+	path = src/github.com/jtols/gls
+	url = https://github.com/jtolds/gls.git
+[submodule "src/github.com/jtolds/gls"]
+	path = src/github.com/jtolds/gls
+	url = https://github.com/jtolds/gls
