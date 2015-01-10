@@ -7,6 +7,5 @@ install: echo > /dev/null
 
 script:
     - export GOPATH=$TRAVIS_BUILD_DIR
-    - ls -la $GOPATH
     - cd src/github.com/cjlucas/yabtc
     - go test -v ./...

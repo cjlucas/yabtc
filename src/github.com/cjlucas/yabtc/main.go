@@ -10,6 +10,7 @@ import (
 import (
 	"github.com/cjlucas/yabtc/services"
 	"github.com/cjlucas/yabtc/services/swarm_manager"
+	"github.com/cjlucas/yabtc/services/tracker_manager"
 )
 
 import "os"
@@ -77,6 +78,20 @@ func testSwarmManager() {
 	swarm_manager.Run(sm)
 }
 
+func testTrackerManager() {
+	t := tracker_manager.New()
+
+	metadata, _ := torrent.ParseFile(os.Args[1])
+	fmt.Println(metadata.InfoHashString())
+
+	var infoHash [20]byte
+	copy(infoHash[:], metadata.InfoHash())
+
+	t.RegisterTorrent(infoHash, []string{metadata.Announce})
+
+	t.Run()
+}
+
 func main() {
-	testSwarmManager()
+	testTrackerManager()
 }
