@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/cjlucas/yabtc/p2p"
+	"github.com/cjlucas/yabtc/interfaces"
 	"github.com/zeebo/bencode"
 )
 
-type peer struct {
+type dictFormatPeer struct {
 	Ip     string `bencode:"ip"`
-	Port   uint32 `bencode:"port"`
+	Port   int    `bencode:"port"`
 	PeerId string `bencode:"peer id"`
 }
 
@@ -26,7 +26,7 @@ type AnnounceResponse struct {
 	RawPeers       bencode.RawMessage `bencode:"peers"`
 }
 
-func (resp *AnnounceResponse) Peers() []p2p.Peer {
+func (resp *AnnounceResponse) Peers() []interfaces.Peer {
 	switch resp.RawPeers[0] {
 	case 'l':
 		return parsePeersDictFormat(resp.RawPeers)
@@ -65,24 +65,30 @@ func Announce(announceUrl string, infoHash []byte) (*AnnounceResponse, error) {
 	return &out, nil
 }
 
-func parsePeersDictFormat(rawPeers []byte) []p2p.Peer {
-	var peerList []peer
+func parsePeersDictFormat(rawPeers []byte) []interfaces.Peer {
+	var peerList []dictFormatPeer
 	if err := bencode.DecodeBytes(rawPeers, peerList); err != nil {
 		panic(err)
 	}
 
-	peers := make([]p2p.Peer, len(peerList))
+	peers := make([]interfaces.Peer, len(peerList))
 
-	for i, p := range peerList {
-		peer := p2p.NewPeer(p.Ip, int(p.Port), []byte(p.PeerId))
-		peers[i] = *peer
+	for i := range peerList {
+		var p peer
+		p.ip = peerList[i].Ip
+		p.port = peerList[i].Port
+		if peerList[i].PeerId != "" {
+			copy(p.peerId[:], []byte(peerList[i].PeerId))
+		}
+
+		peers[i] = interfaces.Peer(p)
 	}
 
 	return peers
 }
 
-func parsePeersBinaryFormat(rawPeers []byte) []p2p.Peer {
-	peers := make([]p2p.Peer, len(rawPeers)/6)
+func parsePeersBinaryFormat(rawPeers []byte) []interfaces.Peer {
+	peers := make([]interfaces.Peer, len(rawPeers)/6)
 
 	curByte := 0
 	for rawPeers[curByte] != ':' {
@@ -90,16 +96,17 @@ func parsePeersBinaryFormat(rawPeers []byte) []p2p.Peer {
 	}
 	curByte += 1
 	for i, _ := range peers {
+		var p peer
 		ipBytes := rawPeers[curByte : curByte+4]
-		ip := fmt.Sprintf("%d.%d.%d.%d",
+		p.ip = fmt.Sprintf("%d.%d.%d.%d",
 			ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 
 		port := uint32(rawPeers[curByte+4])
 		port = port << 8
 		port |= uint32(rawPeers[curByte+5])
+		p.port = int(port)
 
-		peer := p2p.NewPeer(ip, int(port), nil)
-		peers[i] = *peer
+		peers[i] = interfaces.Peer(p)
 
 		curByte += 6
 	}

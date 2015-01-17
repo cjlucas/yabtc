@@ -2,8 +2,10 @@ package services
 
 import (
 	"fmt"
+
+	"github.com/cjlucas/yabtc/services/swarm_manager"
+	"github.com/cjlucas/yabtc/services/tracker_manager"
 	"github.com/cjlucas/yabtc/torrent"
-	"time"
 )
 
 type TorrentStatus int
@@ -15,14 +17,12 @@ const (
 )
 
 type Torrent struct {
-	Id               string
+	InfoHash         [20]byte
 	MetaData         torrent.MetaData
-	InfoHash         string
 	Root             string
 	Files            torrent.FileList
 	Pieces           []byte
 	Status           TorrentStatus
-	NextAnnounce     time.Time
 	AmountUploaded   int
 	AmountDownloaded int
 	AmountLeft       int
@@ -30,6 +30,8 @@ type Torrent struct {
 
 type TorrentManager struct {
 	Torrents           map[string]*Torrent
+	SwarmManager       *swarm_manager.SwarmManager
+	TrackerManager     *tracker_manager.TrackerManager
 	TorrentCheckerChan chan torrent.FullPiece
 }
 
@@ -38,8 +40,7 @@ func NewTorrent(root string, metadata torrent.MetaData) *Torrent {
 	t.Root = root
 	t.MetaData = metadata
 	t.Files = metadata.Files()
-	t.InfoHash = metadata.InfoHashString()
-	t.Id = t.InfoHash
+	t.InfoHash = metadata.InfoHash()
 	return &t
 }
 
@@ -47,14 +48,18 @@ func NewTorrentManager() *TorrentManager {
 	var tm TorrentManager
 	tm.TorrentCheckerChan = make(chan torrent.FullPiece, 100)
 
+	tm.SwarmManager = swarm_manager.NewSwarmManager()
+	tm.TrackerManager = tracker_manager.New()
+
 	return &tm
 }
 
 func (m *TorrentManager) AddTorrent(t *Torrent) {
+	m.SwarmManager.RegisterTorrent(&t.MetaData)
+	m.TrackerManager.RegisterTorrent(t.InfoHash, []string{t.MetaData.Announce})
 }
 
 func (m *TorrentManager) DeleteTorrent(t *Torrent) {
-	delete(m.Torrents, t.InfoHash)
 
 	// TODO stop any jobs working on this torrent
 }
@@ -78,6 +83,12 @@ func (m *TorrentManager) CheckTorrent(t *Torrent) {
 }
 
 func (m *TorrentManager) Run() {
+	fmt.Println("Starting services")
+	go m.SwarmManager.Run()
+	go m.TrackerManager.Run()
+
+	fmt.Println("Services started")
+
 	for {
 		select {
 		case piece, ok := <-m.TorrentCheckerChan:
@@ -85,7 +96,11 @@ func (m *TorrentManager) Run() {
 				return
 			}
 			fmt.Printf("Received Piece: %d %s %s\n", piece.Index, piece.Have, ok)
+		case t := <-m.TrackerManager.TrackerResponseChan:
+			resp := t.LastResponse
+			for _, p := range resp.Peers() {
+				m.SwarmManager.AddPeerToSwarm(t.InfoHash, p)
+			}
 		}
-
 	}
 }

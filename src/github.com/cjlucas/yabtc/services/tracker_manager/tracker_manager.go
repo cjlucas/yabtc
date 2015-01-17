@@ -12,6 +12,7 @@ type TrackerManager struct {
 	addTrackerChan        chan Tracker
 	UnregisterTorrentChan chan [20]byte
 	updateTrackerChan     chan *Tracker
+	TrackerResponseChan   chan Tracker
 }
 
 type Tracker struct {
@@ -27,6 +28,7 @@ func New() *TrackerManager {
 	m.addTrackerChan = make(chan Tracker, 1000)
 	m.UnregisterTorrentChan = make(chan [20]byte, 1000)
 	m.updateTrackerChan = make(chan *Tracker, 1000)
+	m.TrackerResponseChan = make(chan Tracker, 1000)
 
 	return &m
 }
@@ -69,11 +71,11 @@ func (m *TrackerManager) Run() {
 				fmt.Printf("Error updating tracker %s (%s)\n", t.Url, err)
 				break
 			} else {
-				fmt.Printf("%+v\n", resp)
 				fmt.Printf("Got %d Peers\n", len(resp.Peers()))
 				t.LastUpdated = time.Now()
 				nextUpdateDuration := time.Duration(resp.Interval) * time.Second
 				t.NextUpdate = t.LastUpdated.Add(nextUpdateDuration)
+				m.TrackerResponseChan <- *t
 			}
 
 		default:
@@ -81,15 +83,12 @@ func (m *TrackerManager) Run() {
 
 			for i := range m.trackers {
 				t := &m.trackers[i]
-				fmt.Println(t.Url)
-				fmt.Println(t.LastUpdated)
-				fmt.Println(t.NextUpdate)
 				if now.After(t.NextUpdate) {
 					m.updateTrackerChan <- t
 				}
 			}
 
-			time.Sleep(5 * time.Second)
+			time.Sleep(1 * time.Second)
 		}
 	}
 }

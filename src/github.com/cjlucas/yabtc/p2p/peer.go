@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -12,9 +11,11 @@ import (
 	"github.com/cjlucas/yabtc/piece"
 )
 
+const READ_DEADLINE = 1 * time.Second
+
 type Peer struct {
-	Addr          net.Addr
-	PeerId        []byte
+	Addr          PeerAddr
+	peerId        [20]byte
 	Conn          net.Conn
 	Pieces        []piece.Piece
 	Choked        bool
@@ -22,7 +23,9 @@ type Peer struct {
 	BytesReceived int
 	BytesSent     int
 	ReadChan      chan messages.Message
+	quitReadChan  chan bool
 	WriteChan     chan messages.Message
+	quitWriteChan chan bool
 }
 
 type PeerAddr struct {
@@ -38,16 +41,40 @@ func (addr PeerAddr) String() string {
 	return fmt.Sprintf("%s:%d", addr.Ip, addr.Port)
 }
 
-func NewPeer(ip string, port int, peerId []byte) *Peer {
+func NewPeer(ip string, port int, peerId [20]byte, pieces []piece.Piece) *Peer {
 	var peer Peer
 
-	peer.PeerId = peerId
 	peer.Addr = PeerAddr{ip, port}
+	peer.peerId = peerId
+	peer.Pieces = pieces
 
-	peer.ReadChan = make(chan messages.Message)
-	peer.WriteChan = make(chan messages.Message)
+	peer.ReadChan = make(chan messages.Message, 100)
+	peer.quitReadChan = make(chan bool)
+	peer.WriteChan = make(chan messages.Message, 100)
+	peer.quitWriteChan = make(chan bool)
 
 	return &peer
+}
+
+func (p Peer) Ip() string {
+	return p.Addr.Ip
+}
+
+func (p Peer) Port() int {
+	return p.Addr.Port
+}
+
+func (p Peer) HasPeerId() bool {
+	for _, b := range p.peerId {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p Peer) PeerId() [20]byte {
+	return p.peerId
 }
 
 func (p *Peer) IsConnected() bool {
@@ -65,44 +92,38 @@ func (p *Peer) Connect() error {
 }
 
 func (p *Peer) Disconnect() {
+	p.quitReadChan <- true
+	p.quitWriteChan <- true
+
+	<-p.quitReadChan
+	<-p.quitWriteChan
+
 	if p.IsConnected() {
 		p.Conn.Close()
 		p.Conn = nil
 	}
 }
 
-func (p *Peer) PerformHandshake(infoHash []byte, peerId []byte) error {
-	if err := p.Connect(); err != nil {
-		return err
-	}
+func (p *Peer) SendHandshake(hs Handshake) error {
+	_, err := p.Conn.Write(hs.Bytes())
+	return err
+}
 
-	p.Conn.SetDeadline(time.Now().Add(5 * time.Second))
-
-	hs := NewHandshake("BitTorrent protocol", infoHash, peerId)
-	if _, err := p.Conn.Write(hs.Bytes()); err != nil {
-		return err
-	}
-
+func (p *Peer) ReceiveHandshake(expectedInfoHash [20]byte) error {
 	if hs_resp, err := readHandshake(p.Conn); err != nil {
 		return err
-	} else if p.PeerId != nil && !bytes.Equal(hs_resp.PeerId[:], p.PeerId) {
+	} else if p.HasPeerId() && hs_resp.PeerId == p.PeerId() {
 		return fmt.Errorf("peer ID does not match")
-	} else if !bytes.Equal(hs_resp.InfoHash[:], infoHash) {
+	} else if hs_resp.InfoHash != expectedInfoHash {
 		return fmt.Errorf("info hash does not match")
 	}
 
-	msg, err := readMessage(p.Conn)
-	if err != nil {
-		return err
-	}
-
-	if msg.Id != messages.BITFIELD_MSG_ID {
-		return fmt.Errorf("received unexpected message: %d", msg.Id)
-	}
-
-	messages.DecodeBitfieldPayload(msg.Payload, p.Pieces)
-
 	return nil
+}
+
+func (p *Peer) StartHandlers() {
+	go p.readHandler()
+	go p.writeHandler()
 }
 
 func readBytes(r io.Reader, buf []byte, count int) error {
@@ -142,7 +163,9 @@ func readHandshake(r io.Reader) (*Handshake, error) {
 	return &resp, nil
 }
 
-func readMessage(r io.Reader) (*messages.Message, error) {
+func readMessage(r net.Conn) (*messages.Message, error) {
+	r.SetReadDeadline(time.Now().Add(READ_DEADLINE))
+
 	var msg messages.Message
 	if err := binary.Read(r, binary.BigEndian, &msg.Len); err != nil {
 		return nil, err
@@ -161,25 +184,33 @@ func readMessage(r io.Reader) (*messages.Message, error) {
 	return &msg, nil
 }
 
-func readHandler(conn net.Conn, c chan messages.Message) {
+func (p *Peer) readHandler() {
 	for {
-		// TODO handle error
-		msg, err := readMessage(conn)
+		select {
+		case <-p.quitReadChan:
+			p.quitReadChan <- true
+			return
+		default:
+			// TODO handle error
+			msg, err := readMessage(p.Conn)
 
-		if err != nil {
-			fmt.Println(err)
-			continue
+			if err != nil {
+				continue
+			}
+
+			p.ReadChan <- *msg
 		}
-
-		fmt.Printf("Received message: (len: %d, id: %d)\n", msg.Len, msg.Id)
-		c <- *msg
 	}
 }
 
-func writeHandler(conn net.Conn, c chan messages.Message) {
+func (p *Peer) writeHandler() {
 	for {
-		msg := <-c
-		n, _ := conn.Write(msg.Bytes())
-		fmt.Printf("Wrote %d bytes\n", n)
+		select {
+		case msg := <-p.WriteChan:
+			p.Conn.Write(msg.Bytes())
+		case <-p.quitWriteChan:
+			p.quitWriteChan <- true
+			return
+		}
 	}
 }

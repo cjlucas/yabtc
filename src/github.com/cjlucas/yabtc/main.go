@@ -56,7 +56,6 @@ func checkpiece() {
 	t := services.NewTorrent("/Users/chris/Downloads", *metadata)
 
 	tm := services.NewTorrentManager()
-
 	tm.AddTorrent(t)
 
 	tm.CheckTorrent(t)
@@ -72,10 +71,12 @@ func testSwarmManager() {
 
 	sm.RegisterTorrent(metadata)
 
-	sm.VerifyPeer(metadata.InfoHashString(), p2p.NewPeer("89.85.48.189", 51413, nil))
-	sm.VerifyPeer(metadata.InfoHashString(), p2p.NewPeer("95.211.141.107", 51523, nil))
+	p := p2p.NewPeer("89.85.48.189", 51413, [20]byte{}, nil)
+	for i := 0; i < 25; i++ {
+		sm.AddPeerToSwarm(metadata.InfoHash(), p)
+	}
 
-	swarm_manager.Run(sm)
+	sm.Run()
 }
 
 func testTrackerManager() {
@@ -84,14 +85,29 @@ func testTrackerManager() {
 	metadata, _ := torrent.ParseFile(os.Args[1])
 	fmt.Println(metadata.InfoHashString())
 
-	var infoHash [20]byte
-	copy(infoHash[:], metadata.InfoHash())
+	go t.Run()
 
-	t.RegisterTorrent(infoHash, []string{metadata.Announce})
+	t.RegisterTorrent(metadata.InfoHash(), []string{metadata.Announce})
+
+	for {
+		select {
+		case t := <-t.TrackerResponseChan:
+			for _, p := range t.LastResponse.Peers() {
+				fmt.Printf("%+v\n", p)
+			}
+		}
+	}
+}
+
+func testTorrentManager() {
+	t := services.NewTorrentManager()
+
+	metadata, _ := torrent.ParseFile(os.Args[1])
+	t.AddTorrent(services.NewTorrent("/Users/chris", *metadata))
 
 	t.Run()
 }
 
 func main() {
-	testTrackerManager()
+	testTorrentManager()
 }

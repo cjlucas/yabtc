@@ -4,8 +4,9 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
-	"github.com/zeebo/bencode"
 	"io/ioutil"
+
+	"github.com/zeebo/bencode"
 )
 
 type Info struct {
@@ -76,7 +77,7 @@ func (m *MetaData) Files() FileList {
 	return files
 }
 
-func (m *MetaData) InfoHash() []byte {
+func (m *MetaData) InfoHash() [20]byte {
 	info := make(map[string]interface{})
 
 	info["name"] = m.Info.Name
@@ -91,7 +92,10 @@ func (m *MetaData) InfoHash() []byte {
 		panic(err)
 	}
 
-	return sha.Sum(nil)
+	var hash [20]byte
+	copy(hash[:], sha.Sum(nil))
+
+	return hash
 }
 
 func (m *MetaData) InfoHashString() string {
