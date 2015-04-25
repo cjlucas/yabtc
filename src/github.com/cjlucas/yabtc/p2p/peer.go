@@ -11,7 +11,7 @@ import (
 	"github.com/cjlucas/yabtc/piece"
 )
 
-const READ_DEADLINE = 1 * time.Second
+const READ_DEADLINE = 3 * time.Second
 
 type Peer struct {
 	Addr          PeerAddr
@@ -140,7 +140,9 @@ func readBytes(r io.Reader, buf []byte, count int) error {
 	return nil
 }
 
-func readHandshake(r io.Reader) (*Handshake, error) {
+func readHandshake(r net.Conn) (*Handshake, error) {
+	r.SetReadDeadline(time.Now().Add(READ_DEADLINE))
+
 	var resp Handshake
 	buf := make([]byte, 1)
 	if _, err := r.Read(buf); err != nil {
