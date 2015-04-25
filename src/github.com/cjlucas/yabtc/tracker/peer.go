@@ -1,29 +1,44 @@
 package tracker
 
-type peer struct {
-	ip     string
-	port   int
-	peerId [20]byte
+import "fmt"
+
+type Peer interface {
+	Ip() string
+	Port() int
+	PeerId() []byte // Can be nil
 }
 
-func (p peer) Ip() string {
-	return p.ip
+type dictFormatPeer struct {
+	IpStr     string `bencode:"ip"`
+	PortInt   int    `bencode:"port"`
+	PeerIdStr string `bencode:"peer id"`
 }
 
-func (p peer) Port() int {
-	return p.port
+type binaryFormatPeer struct {
+	data []byte
 }
 
-func (p peer) HasPeerId() bool {
-	for _, b := range p.peerId {
-		if b != 0 {
-			return true
-		}
-	}
-
-	return false
+func (p *dictFormatPeer) Ip() string {
+	return p.IpStr
 }
 
-func (p peer) PeerId() [20]byte {
-	return p.peerId
+func (p *dictFormatPeer) Port() int {
+	return p.PortInt
+}
+
+func (p *dictFormatPeer) PeerId() []byte {
+	return []byte(p.PeerIdStr)
+}
+
+func (p *binaryFormatPeer) Ip() string {
+	return fmt.Sprintf("%d.%d.%d.%d",
+		p.data[0], p.data[1], p.data[2], p.data[3])
+}
+
+func (p *binaryFormatPeer) Port() int {
+	return (int(p.data[4]) << 8) | int(p.data[5])
+}
+
+func (p *binaryFormatPeer) PeerId() []byte {
+	return nil
 }

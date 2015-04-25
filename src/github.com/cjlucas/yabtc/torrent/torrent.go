@@ -2,7 +2,6 @@ package torrent
 
 import (
 	"crypto/sha1"
-	"errors"
 	"fmt"
 	"io/ioutil"
 
@@ -39,7 +38,7 @@ func ParseFile(fname string) (*MetaData, error) {
 func ParseBytes(b []byte) (*MetaData, error) {
 	var m MetaData
 	if err := bencode.DecodeBytes(b, &m); err != nil {
-		return nil, errors.New("Error decoding torrent")
+		return nil, fmt.Errorf("bencode error: %s", err)
 	}
 
 	return &m, nil
@@ -77,13 +76,14 @@ func (m *MetaData) Files() FileList {
 	return files
 }
 
-func (m *MetaData) InfoHash() [20]byte {
+func (m *MetaData) InfoHash() []byte {
 	info := make(map[string]interface{})
 
 	info["name"] = m.Info.Name
 	info["piece length"] = m.Info.PieceLength
 	info["pieces"] = m.Info.Pieces
 	info["length"] = m.Info.Length
+	info["private"] = m.Info.Private
 
 	sha := sha1.New()
 	encoder := bencode.NewEncoder(sha)
@@ -92,10 +92,7 @@ func (m *MetaData) InfoHash() [20]byte {
 		panic(err)
 	}
 
-	var hash [20]byte
-	copy(hash[:], sha.Sum(nil))
-
-	return hash
+	return sha.Sum(nil)
 }
 
 func (m *MetaData) InfoHashString() string {
