@@ -2,112 +2,45 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
 
-	"github.com/cjlucas/yabtc/p2p"
 	"github.com/cjlucas/yabtc/torrent"
 )
 
-import (
-	"github.com/cjlucas/yabtc/services"
-	"github.com/cjlucas/yabtc/services/swarm_manager"
-	"github.com/cjlucas/yabtc/services/tracker_manager"
-)
+var logger = log.New(os.Stdout, "", log.LstdFlags)
 
-import "os"
-
-/*
- *func dunno() {
- *    t, _ := torrent.ParseFile(os.Args[1])
- *    hash := t.InfoHash()
- *    fmt.Printf("%x\n", hash)
- *
- *    resp, err := tracker.Announce(t.Announce, hash)
- *
- *    if err != nil {
- *        panic(err)
- *    }
- *
- *    peer := resp.Peers()[0]
- *
- *    conn, err := p2p.New(fmt.Sprintf("%s:%d", peer.Ip, peer.Port))
- *
- *    if err != nil {
- *        panic(err)
- *    }
- *
- *    conn.PerformHandshake(hash, hash)
- *
- *    conn.StartHandlers()
- *
- *    for {
- *        msg := <-conn.ReadChan
- *        if msg.Id == 5 {
- *            conn.WriteChan <- *messages.InterestedMessage()
- *        } else if msg.Id == 1 {
- *            conn.WriteChan <- *messages.RequestMessage(0, 0, 1024)
- *        }
- *    }
- *}
- */
-
-func checkpiece() {
-	metadata, _ := torrent.ParseFile(os.Args[1])
-
-	t := services.NewTorrent("/Users/chris/Downloads", *metadata)
-
-	tm := services.NewTorrentManager()
-	tm.AddTorrent(t)
-
-	tm.CheckTorrent(t)
-
-	tm.Run()
-}
-
-func testSwarmManager() {
-	metadata, _ := torrent.ParseFile(os.Args[1])
-	fmt.Println(metadata.InfoHashString())
-
-	sm := swarm_manager.NewSwarmManager()
-
-	sm.RegisterTorrent(metadata)
-
-	p := p2p.NewPeer("89.85.48.189", 51413, [20]byte{}, nil)
-	for i := 0; i < 25; i++ {
-		sm.AddPeerToSwarm(metadata.InfoHash(), p)
+func main() {
+	pm, err := NewPeerManager(54343)
+	if err != nil {
+		fmt.Printf("error: could not start peer manager: %s", err)
+		return
 	}
+	go pm.Run()
 
-	sm.Run()
-}
+	sm := NewSwarmManager()
+	go sm.Run()
 
-func testTrackerManager() {
-	t := tracker_manager.New()
+	tm := NewTrackerManager()
 
-	metadata, _ := torrent.ParseFile(os.Args[1])
-	fmt.Println(metadata.InfoHashString())
+	t, _ := torrent.ParseFile(os.Args[1])
+	sm.AddTorrent(t)
 
-	go t.Run()
+	peerId := []byte("-AZ2060-000000000000")
+	tm.AddTracker(t.Announce, t.InfoHash(), peerId)
 
-	t.RegisterTorrent(metadata.InfoHash(), []string{metadata.Announce})
+	pm.RegisterTorrent(t.InfoHash()[:], peerId)
 
 	for {
 		select {
-		case t := <-t.TrackerResponseChan:
-			for _, p := range t.LastResponse.Peers() {
-				fmt.Printf("%+v\n", p)
+		case r := <-tm.AnnounceResponseChan:
+			fmt.Printf("Received tracker response: %v\n", r)
+			for _, p := range r.Response.Peers() {
+				pm.VerifyPeer(r.InfoHash[:], p.Ip(), p.Port())
 			}
+		case vp := <-pm.VerifiedPeerChan:
+			fmt.Println("here", vp.Peer.Ip())
+			sm.AddPeer(vp.InfoHash, vp.Peer)
 		}
 	}
-}
-
-func testTorrentManager() {
-	t := services.NewTorrentManager()
-
-	metadata, _ := torrent.ParseFile(os.Args[1])
-	t.AddTorrent(services.NewTorrent("/Users/chris", *metadata))
-
-	t.Run()
-}
-
-func main() {
-	testTorrentManager()
 }

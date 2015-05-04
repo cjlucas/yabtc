@@ -2,99 +2,115 @@ package messages
 
 import (
 	"encoding/binary"
-	"github.com/cjlucas/yabtc/piece"
-	"math"
+	"errors"
+
+	"github.com/cjlucas/yabtc/bitfield"
 )
 
-func EncodeHavePayload(payload uint32) []byte {
+var invalidPayloadError = errors.New("invalid payload")
+
+func (m *Generic) Payload() []byte       { return m.payload }
+func (m *Choke) Payload() []byte         { return nil }
+func (m *Unchoke) Payload() []byte       { return nil }
+func (m *Interested) Payload() []byte    { return nil }
+func (m *NotInterested) Payload() []byte { return nil }
+
+func (m *Have) Payload() []byte {
 	var out [4]byte
-	binary.BigEndian.PutUint32(out[0:], payload)
+	binary.BigEndian.PutUint32(out[0:], uint32(m.PieceIndex))
 	return out[0:]
 }
 
-func DecodeHavePayload(payload []byte) uint32 {
-	return binary.BigEndian.Uint32(payload)
+func (m *Bitfield) Payload() []byte {
+	return m.Bits.Bytes()
 }
 
-func EncodeBitfieldPayload(pieces []piece.Piece) []byte {
-	numPieces := len(pieces)
-	bitfieldSize := uint32(math.Ceil(float64(numPieces) / float64(8)))
-	b := make([]byte, bitfieldSize)
-
-	for i := 0; i < numPieces; i++ {
-		curByte := &b[i/8]
-		mod := i % 8
-		if pieces[i].Have {
-			*curByte |= (byte(1) << (uint32(7 - mod)))
-		}
-	}
-
-	return b
-}
-
-// pieces is expected to be a slice of valid Piece objects
-func DecodeBitfieldPayload(payload []byte, pieces []piece.Piece) {
-	numPieces := len(pieces)
-
-	for i := 0; i < numPieces; i++ {
-		piece := &pieces[i]
-		curByte := payload[i/8]
-		mod := i % 8
-		piece.Have = (curByte >> uint(7-mod) & 0x1) == 1
-	}
-}
-
-func EncodeRequestPayload(index uint32, begin uint32, length uint32) []byte {
+func (m *Request) Payload() []byte {
 	var payload [12]byte
 
-	binary.BigEndian.PutUint32(payload[0:4], uint32(index))
-	binary.BigEndian.PutUint32(payload[4:8], uint32(begin))
-	binary.BigEndian.PutUint32(payload[8:12], uint32(length))
+	binary.BigEndian.PutUint32(payload[0:4], uint32(m.Index))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(m.Begin))
+	binary.BigEndian.PutUint32(payload[8:12], uint32(m.Length))
 
-	return payload[0:]
+	return payload[:]
 }
 
-func DecodeRequestPayload(payload []byte) (index uint32, begin uint32, length uint32) {
+func (m *Cancel) Payload() []byte {
+	var payload [12]byte
 
-	index = binary.BigEndian.Uint32(payload[0:4])
-	begin = binary.BigEndian.Uint32(payload[4:8])
-	length = binary.BigEndian.Uint32(payload[8:12])
+	binary.BigEndian.PutUint32(payload[0:4], uint32(m.Index))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(m.Begin))
+	binary.BigEndian.PutUint32(payload[8:12], uint32(m.Length))
 
-	return index, begin, length
+	return payload[:]
 }
 
-func EncodeCancelPayload(index uint32, begin uint32, length uint32) []byte {
-	return EncodeRequestPayload(index, begin, length)
-}
+func (m *Piece) Payload() []byte {
+	payload := make([]byte, 8+len(m.Block))
 
-func DecodeCancelPayload(payload []byte) (index uint32, begin uint32, length uint32) {
-	return DecodeRequestPayload(payload)
-}
-
-func EncodePiecePayload(index uint32, begin uint32, block []byte) []byte {
-	payload := make([]byte, 8+len(block))
-
-	binary.BigEndian.PutUint32(payload[0:4], uint32(index))
-	binary.BigEndian.PutUint32(payload[4:8], uint32(begin))
-	copy(payload[8:], block)
+	binary.BigEndian.PutUint32(payload[0:4], uint32(m.Index))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(m.Begin))
+	copy(payload[8:], m.Block)
 
 	return payload
 }
 
-func DecodePiecePayload(payload []byte) (index uint32, begin uint32, block []byte) {
-	index = binary.BigEndian.Uint32(payload[0:4])
-	begin = binary.BigEndian.Uint32(payload[4:8])
-	block = payload[8:]
-
-	return index, begin, block
+func (m *Port) Payload() []byte {
+	var out [2]byte
+	binary.BigEndian.PutUint16(out[:], uint16(m.Port))
+	return out[:]
 }
 
-func EncodePortPayload(payload uint32) []byte {
-	var out [4]byte
-	binary.BigEndian.PutUint32(out[0:], payload)
-	return out[0:]
+func (m *Have) decodePayload(payload []byte) error {
+	if len(payload) < 4 {
+		return invalidPayloadError
+	}
+	m.PieceIndex = int(binary.BigEndian.Uint32(payload))
+	return nil
 }
 
-func DecodePortPayload(payload []byte) uint32 {
-	return binary.BigEndian.Uint32(payload)
+func (m *Bitfield) decodePayload(payload []byte) error {
+	m.Bits = bitfield.New(len(payload) * 8)
+	m.Bits.SetBytes(payload)
+	return nil
+}
+
+func (m *Request) decodePayload(payload []byte) error {
+	if len(payload) < 12 {
+		return invalidPayloadError
+	}
+	m.Index = int(binary.BigEndian.Uint32(payload[0:4]))
+	m.Begin = int(binary.BigEndian.Uint32(payload[4:8]))
+	m.Length = int(binary.BigEndian.Uint32(payload[8:12]))
+	return nil
+}
+
+func (m *Cancel) decodePayload(payload []byte) error {
+	if len(payload) < 12 {
+		return invalidPayloadError
+	}
+	m.Index = int(binary.BigEndian.Uint32(payload[0:4]))
+	m.Begin = int(binary.BigEndian.Uint32(payload[4:8]))
+	m.Length = int(binary.BigEndian.Uint32(payload[8:12]))
+	return nil
+}
+
+func (m *Piece) decodePayload(payload []byte) error {
+	if len(payload) < 8 {
+		return invalidPayloadError
+	}
+
+	m.Index = int(binary.BigEndian.Uint32(payload[0:4]))
+	m.Begin = int(binary.BigEndian.Uint32(payload[4:8]))
+	m.Block = payload[8:]
+
+	return nil
+}
+
+func (m *Port) decodePayload(payload []byte) error {
+	if len(payload) < 4 {
+		return invalidPayloadError
+	}
+	m.Port = int(binary.BigEndian.Uint32(payload))
+	return nil
 }

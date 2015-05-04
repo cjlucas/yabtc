@@ -19,7 +19,8 @@ type Info struct {
 }
 
 type MetaData struct {
-	Info         Info   `bencode:"info"`
+	RawInfo      bencode.RawMessage `bencode:"info"`
+	Info         Info
 	Announce     string `bencode:"announce"`
 	CreationDate int64  `bencode:"creation date"`
 	Comment      string `bencode:"comment"`
@@ -38,6 +39,10 @@ func ParseFile(fname string) (*MetaData, error) {
 func ParseBytes(b []byte) (*MetaData, error) {
 	var m MetaData
 	if err := bencode.DecodeBytes(b, &m); err != nil {
+		return nil, fmt.Errorf("bencode error: %s", err)
+	}
+
+	if err := bencode.DecodeBytes(m.RawInfo, &m.Info); err != nil {
 		return nil, fmt.Errorf("bencode error: %s", err)
 	}
 
@@ -77,18 +82,10 @@ func (m *MetaData) Files() FileList {
 }
 
 func (m *MetaData) InfoHash() []byte {
-	info := make(map[string]interface{})
-
-	info["name"] = m.Info.Name
-	info["piece length"] = m.Info.PieceLength
-	info["pieces"] = m.Info.Pieces
-	info["length"] = m.Info.Length
-	info["private"] = m.Info.Private
-
 	sha := sha1.New()
 	encoder := bencode.NewEncoder(sha)
 
-	if err := encoder.Encode(&info); err != nil {
+	if err := encoder.Encode(&m.RawInfo); err != nil {
 		panic(err)
 	}
 

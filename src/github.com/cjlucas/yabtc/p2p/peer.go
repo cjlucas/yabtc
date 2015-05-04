@@ -8,24 +8,21 @@ import (
 	"time"
 
 	"github.com/cjlucas/yabtc/p2p/messages"
-	"github.com/cjlucas/yabtc/piece"
 )
 
-const READ_DEADLINE = 3 * time.Second
+const READ_DEADLINE = 5 * time.Second
 
 type Peer struct {
-	Addr          PeerAddr
-	peerId        [20]byte
-	Conn          net.Conn
-	Pieces        []piece.Piece
-	Choked        bool
-	Interested    bool
-	BytesReceived int
-	BytesSent     int
-	ReadChan      chan messages.Message
-	quitReadChan  chan bool
-	WriteChan     chan messages.Message
-	quitWriteChan chan bool
+	Addr           PeerAddr
+	peerId         [20]byte
+	Conn           net.Conn
+	Choked         bool
+	Interested     bool
+	BytesReceived  int
+	BytesSent      int
+	ReadChan       chan messages.Message
+	WriteChan      chan messages.Message
+	ClosedConnChan chan bool
 }
 
 type PeerAddr struct {
@@ -41,19 +38,25 @@ func (addr PeerAddr) String() string {
 	return fmt.Sprintf("%s:%d", addr.Ip, addr.Port)
 }
 
-func NewPeer(ip string, port int, peerId [20]byte, pieces []piece.Piece) *Peer {
+func NewPeer(ip string, port int) *Peer {
 	var peer Peer
 
 	peer.Addr = PeerAddr{ip, port}
-	peer.peerId = peerId
-	peer.Pieces = pieces
 
 	peer.ReadChan = make(chan messages.Message, 100)
-	peer.quitReadChan = make(chan bool)
 	peer.WriteChan = make(chan messages.Message, 100)
-	peer.quitWriteChan = make(chan bool)
+	peer.ClosedConnChan = make(chan bool)
 
 	return &peer
+}
+
+func NewPeerWithConn(conn net.Conn) *Peer {
+	var ip string
+	var port int
+	fmt.Sscanf(conn.RemoteAddr().String(), "%s:%d", ip, port)
+	p := NewPeer(ip, port)
+	p.Conn = conn
+	return p
 }
 
 func (p Peer) Ip() string {
@@ -64,13 +67,8 @@ func (p Peer) Port() int {
 	return p.Addr.Port
 }
 
-func (p Peer) HasPeerId() bool {
-	for _, b := range p.peerId {
-		if b != 0 {
-			return true
-		}
-	}
-	return false
+func (p Peer) Address() string {
+	return fmt.Sprintf("%s:%d", p.Ip(), p.Port())
 }
 
 func (p Peer) PeerId() [20]byte {
@@ -82,7 +80,8 @@ func (p *Peer) IsConnected() bool {
 }
 
 func (p *Peer) Connect() error {
-	if conn, err := net.Dial(p.Addr.Network(), p.Addr.String()); err != nil {
+	dialer := net.Dialer{READ_DEADLINE, time.Time{}, nil, true, 0}
+	if conn, err := dialer.Dial("tcp", p.Address()); err != nil {
 		return err
 	} else {
 		p.Conn = conn
@@ -92,12 +91,6 @@ func (p *Peer) Connect() error {
 }
 
 func (p *Peer) Disconnect() {
-	p.quitReadChan <- true
-	p.quitWriteChan <- true
-
-	<-p.quitReadChan
-	<-p.quitWriteChan
-
 	if p.IsConnected() {
 		p.Conn.Close()
 		p.Conn = nil
@@ -105,20 +98,15 @@ func (p *Peer) Disconnect() {
 }
 
 func (p *Peer) SendHandshake(hs Handshake) error {
-	_, err := p.Conn.Write(hs.Bytes())
-	return err
+	return writeBytes(p.Conn, hs.Bytes())
 }
 
-func (p *Peer) ReceiveHandshake(expectedInfoHash [20]byte) error {
+func (p *Peer) ReceiveHandshake() (*Handshake, error) {
 	if hs_resp, err := readHandshake(p.Conn); err != nil {
-		return err
-	} else if p.HasPeerId() && hs_resp.PeerId == p.PeerId() {
-		return fmt.Errorf("peer ID does not match")
-	} else if hs_resp.InfoHash != expectedInfoHash {
-		return fmt.Errorf("info hash does not match")
+		return nil, err
+	} else {
+		return hs_resp, nil
 	}
-
-	return nil
 }
 
 func (p *Peer) StartHandlers() {
@@ -135,6 +123,19 @@ func readBytes(r io.Reader, buf []byte, count int) error {
 		}
 
 		bytesRead += cnt
+	}
+
+	return nil
+}
+
+func writeBytes(w io.Writer, buf []byte) error {
+	bytesWritten := 0
+	for bytesWritten < len(buf) {
+		if n, err := w.Write(buf[bytesWritten:]); err != nil {
+			return err
+		} else {
+			bytesWritten += n
+		}
 	}
 
 	return nil
@@ -165,42 +166,36 @@ func readHandshake(r net.Conn) (*Handshake, error) {
 	return &resp, nil
 }
 
-func readMessage(r net.Conn) (*messages.Message, error) {
+func readMessage(r net.Conn) (messages.Message, error) {
 	r.SetReadDeadline(time.Now().Add(READ_DEADLINE))
 
-	var msg messages.Message
-	if err := binary.Read(r, binary.BigEndian, &msg.Len); err != nil {
+	var msgLen uint32
+	if err := binary.Read(r, binary.BigEndian, &msgLen); err != nil {
 		return nil, err
 	}
 
-	if msg.Len > 0 {
-		buf := make([]byte, msg.Len)
-		if err := readBytes(r, buf, len(buf)); err != nil {
+	if msgLen > 0 {
+		buf := make([]byte, 4+msgLen)
+		binary.BigEndian.PutUint32(buf[0:4], msgLen)
+		if err := readBytes(r, buf[4:], len(buf[4:])); err != nil {
 			return nil, err
 		}
 
-		msg.Id = buf[0]
-		msg.Payload = buf[1:]
+		return messages.ParseBytes(buf)
+	} else {
+		return nil, fmt.Errorf("received message with invalid length: %d", msgLen)
 	}
-
-	return &msg, nil
 }
 
 func (p *Peer) readHandler() {
 	for {
-		select {
-		case <-p.quitReadChan:
-			p.quitReadChan <- true
+		if msg, err := readMessage(p.Conn); err == nil {
+			p.ReadChan <- msg
+		} else if err == io.EOF {
+			p.ClosedConnChan <- true
 			return
-		default:
-			// TODO handle error
-			msg, err := readMessage(p.Conn)
-
-			if err != nil {
-				continue
-			}
-
-			p.ReadChan <- *msg
+		} else if nerr, ok := err.(net.Error); !ok || !nerr.Timeout() {
+			fmt.Println("readMessage error ", err)
 		}
 	}
 }
@@ -209,10 +204,13 @@ func (p *Peer) writeHandler() {
 	for {
 		select {
 		case msg := <-p.WriteChan:
-			p.Conn.Write(msg.Bytes())
-		case <-p.quitWriteChan:
-			p.quitWriteChan <- true
-			return
+			//fmt.Println("will write", msg)
+			if err := writeBytes(p.Conn, messages.AsBytes(msg)); err == io.EOF {
+				p.ClosedConnChan <- true
+				return
+			} else if err != nil {
+				fmt.Println("writeeBytes error ", err)
+			}
 		}
 	}
 }

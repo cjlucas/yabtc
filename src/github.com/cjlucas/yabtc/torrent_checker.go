@@ -1,0 +1,83 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/cjlucas/yabtc/torrent"
+)
+
+type TorrentCheckerProgress struct {
+	Pieces []bool
+}
+
+type TorrentChecker struct {
+}
+
+func check(fs *torrent.FileStream, pieces []torrent.FullPiece, progChan chan *TorrentCheckerProgress, quit chan bool) {
+	defer close(progChan)
+	defer close(quit)
+
+	progress := TorrentCheckerProgress{}
+	fmt.Println(len(pieces))
+
+	curPiece := 0
+	for {
+		select {
+		case <-quit:
+			return
+		default:
+			if curPiece >= len(pieces) {
+				return
+			}
+
+			p := &pieces[curPiece]
+			checksum := fs.CalculatePieceChecksum(*p)
+			p.Have = bytes.Equal(checksum, p.Hash)
+
+			progress.Pieces = append(progress.Pieces, p.Have)
+
+			progChan <- &progress
+			curPiece++
+		}
+	}
+}
+
+func (c *TorrentChecker) Check(root string, metadata *torrent.MetaData) (chan *TorrentCheckerProgress, chan bool) {
+	fs := torrent.FileStream{root, metadata.Files()}
+
+	progChan := make(chan *TorrentCheckerProgress)
+	quit := make(chan bool)
+
+	go check(&fs, metadata.GeneratePieces(), progChan, quit)
+
+	return progChan, quit
+}
+
+func main() {
+	t, err := torrent.ParseFile(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(t.Info.Name)
+	fmt.Println(t.Files())
+
+	tc := TorrentChecker{}
+	ch, quit := tc.Check("/Users/chris/Downloads", t)
+	time.AfterFunc(1*time.Millisecond, func() {
+		quit <- true
+	})
+	for progress := range ch {
+		trues := 0
+		for _, b := range progress.Pieces {
+			if b {
+				trues++
+			}
+		}
+		fmt.Println(len(progress.Pieces))
+	}
+
+	fmt.Println("end")
+}
