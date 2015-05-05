@@ -10,18 +10,17 @@ import (
 )
 
 type TorrentCheckerProgress struct {
-	Pieces []bool
+	Pieces []bool // TODO: use bitfield.Bitfield instead
 }
 
 type TorrentChecker struct {
 }
 
-func check(fs *torrent.FileStream, pieces []torrent.FullPiece, progChan chan *TorrentCheckerProgress, quit chan bool) {
+func check(fs *torrent.FileStream, pieces []torrent.Piece, progChan chan *TorrentCheckerProgress, quit chan bool) {
 	defer close(progChan)
 	defer close(quit)
 
 	progress := TorrentCheckerProgress{}
-	fmt.Println(len(pieces))
 
 	curPiece := 0
 	for {
@@ -34,10 +33,9 @@ func check(fs *torrent.FileStream, pieces []torrent.FullPiece, progChan chan *To
 			}
 
 			p := &pieces[curPiece]
-			checksum := fs.CalculatePieceChecksum(*p)
-			p.Have = bytes.Equal(checksum, p.Hash)
+			checksum := fs.CalculatePieceChecksum(torrent.Block{p.ByteOffset, p.Length})
 
-			progress.Pieces = append(progress.Pieces, p.Have)
+			progress.Pieces = append(progress.Pieces, bytes.Equal(checksum, p.Hash))
 
 			progChan <- &progress
 			curPiece++

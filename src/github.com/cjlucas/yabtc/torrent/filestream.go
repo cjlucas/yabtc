@@ -10,15 +10,6 @@ type Block struct {
 	Offset, Length int
 }
 
-// TODO better name
-type FullPiece struct {
-	Index      int
-	Have       bool
-	ByteOffset int
-	Length     int
-	Hash       []byte
-}
-
 type FileStream struct {
 	Root  string
 	Files FileList
@@ -172,9 +163,7 @@ func (fs *FileStream) ReadBlock(block Block) ([]byte, error) {
 	return data, nil
 }
 
-func (fs *FileStream) CalculatePieceChecksum(piece FullPiece) []byte {
-	block := Block{piece.ByteOffset, piece.Length}
-
+func (fs *FileStream) CalculatePieceChecksum(block Block) []byte {
 	data, err := fs.ReadBlock(block)
 
 	// If there was any error reading the data, return false

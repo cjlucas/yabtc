@@ -8,6 +8,13 @@ import (
 	"github.com/zeebo/bencode"
 )
 
+type Piece struct {
+	Index      int
+	ByteOffset int
+	Length     int
+	Hash       []byte
+}
+
 type Info struct {
 	Name        string `bencode:"name"`
 	Length      int    `bencode:"length"`
@@ -26,6 +33,7 @@ type MetaData struct {
 	Comment      string `bencode:"comment"`
 	CreatedBy    string `bencode:"created by"`
 	Encoding     string `bencode:"encoding"`
+	Pieces       []Piece
 }
 
 func ParseFile(fname string) (*MetaData, error) {
@@ -96,22 +104,25 @@ func (m *MetaData) InfoHashString() string {
 	return fmt.Sprintf("%02X", m.InfoHash())
 }
 
-func (m *MetaData) GeneratePieces() (pieces []FullPiece) {
-	numPieces := len(m.Info.Pieces) / sha1.Size
+// TODO: make function private
+// User should grab Pieces field directly
+func (m *MetaData) GeneratePieces() []Piece {
+	if m.Pieces != nil {
+		return m.Pieces
+	}
 
-	pieces = make([]FullPiece, numPieces)
+	numPieces := m.NumPieces()
+	m.Pieces = make([]Piece, numPieces)
 
 	files := m.Files()
 
 	curByteOffset := 0
-	for i := 0; i < m.NumPieces(); i++ {
-		isLastPiece := i == m.NumPieces()-1
-		p := &pieces[i]
+	for i := 0; i < numPieces; i++ {
+		p := &m.Pieces[i]
 		p.Hash = make([]byte, sha1.Size)
 
 		p.Index = i
-		p.Have = false
-		if isLastPiece {
+		if isLastPiece := i == numPieces-1; isLastPiece {
 			p.Length = files.TotalLength() % m.PieceSize()
 		} else {
 			p.Length = m.PieceSize()
@@ -122,5 +133,5 @@ func (m *MetaData) GeneratePieces() (pieces []FullPiece) {
 		curByteOffset += p.Length
 	}
 
-	return
+	return m.Pieces
 }
