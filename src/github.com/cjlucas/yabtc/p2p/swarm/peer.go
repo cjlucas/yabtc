@@ -8,7 +8,7 @@ import (
 	"github.com/cjlucas/yabtc/p2p/messages"
 )
 
-type peerMessage struct {
+type PeerMessage struct {
 	peer *Peer
 	msg  messages.Message
 }
@@ -29,6 +29,8 @@ type Peer struct {
 
 	// Pending outgoing block requests
 	OutBlockRequests []*messages.Request
+
+	PeerMessageChan chan<- PeerMessage
 
 	// Chan to notify Swarm of an incoming block
 	BlockReceivedChan chan<- *messages.Piece
@@ -83,8 +85,27 @@ func (p *Peer) handleMessage(msg messages.Message) {
 	case *messages.Request:
 		p.InBlockRequests = append(p.InBlockRequests, msg)
 	case *messages.Piece:
-		//p.BlockReceivedChan <- msg
+		p.BlockReceivedChan <- msg
 	default:
 		fmt.Println("got unknown message")
+	}
+}
+
+func (p *Peer) Run() {
+	// TODO defer remove from s.Peers
+	p.Peer.StartHandlers()
+	defer p.Peer.Disconnect()
+
+	for {
+		select {
+		case msg, ok := <-p.Peer.ReadChan:
+			if !ok {
+				return
+			}
+			p.handleMessage(msg)
+			p.PeerMessageChan <- PeerMessage{p, msg}
+		case <-p.Peer.ClosedConnChan:
+			return
+		}
 	}
 }
