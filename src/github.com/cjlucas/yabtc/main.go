@@ -17,6 +17,7 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 func main() {
 	flag.Parse()
 	if *cpuprofile != "" {
+		logger.Printf("Writing CPU profile to %s", cpuprofile)
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
 			log.Fatal(err)
