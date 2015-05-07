@@ -1,16 +1,30 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 
 	"github.com/cjlucas/yabtc/torrent"
 )
 
 var logger = log.New(os.Stdout, "", log.LstdFlags)
 
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+
 func main() {
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	pm, err := NewPeerManager(54343)
 	if err != nil {
 		fmt.Printf("error: could not start peer manager: %s", err)
