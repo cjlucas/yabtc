@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"runtime/pprof"
 
 	"github.com/cjlucas/yabtc/torrent"
@@ -17,7 +18,7 @@ var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 func main() {
 	flag.Parse()
 	if *cpuprofile != "" {
-		logger.Printf("Writing CPU profile to %s", cpuprofile)
+		logger.Printf("Writing CPU profile to %s", *cpuprofile)
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
 			log.Fatal(err)
@@ -25,6 +26,13 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		fmt.Println("Received ctrl+c")
+		os.Exit(0)
+	}()
 
 	pm, err := NewPeerManager(54343)
 	if err != nil {
