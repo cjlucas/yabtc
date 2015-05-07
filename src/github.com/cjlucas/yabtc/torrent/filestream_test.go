@@ -1,9 +1,10 @@
 package torrent
 
 import (
-	. "github.com/smartystreets/goconvey/convey"
 	"os"
 	"testing"
+
+	. "github.com/smartystreets/goconvey/convey"
 )
 
 var goPath = os.Getenv("GOPATH")

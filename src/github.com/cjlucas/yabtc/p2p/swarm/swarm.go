@@ -3,6 +3,8 @@ package swarm
 import (
 	"errors"
 	"fmt"
+	"runtime"
+	"time"
 
 	"github.com/cjlucas/yabtc/bitfield"
 	"github.com/cjlucas/yabtc/p2p"
@@ -12,7 +14,7 @@ import (
 
 var TorrentExistsError = errors.New("torrent already exists")
 
-const PIECE_SIZE = 1 << 14
+const BLOCK_SIZE = 1 << 14
 
 type SwarmStatus int
 
@@ -20,28 +22,6 @@ const (
 	STARTED SwarmStatus = iota
 	STOPPED
 )
-
-type pieceData struct {
-	piece        *torrent.Piece
-	data         []byte
-	bytesWritten *bitfield.Bitfield
-}
-
-func newPieceData(p *torrent.Piece) *pieceData {
-	pd := &pieceData{}
-	pd.piece = p
-	pd.data = make([]byte, p.Length)
-	pd.bytesWritten = bitfield.New(p.Length)
-	return pd
-}
-
-func (pd *pieceData) write(data []byte, offset int) {
-	copy(pd.data[offset:], data)
-
-	for i := 0; i < len(data); i++ {
-		pd.bytesWritten.Set(i+offset, 1)
-	}
-}
 
 type Stats struct {
 	Downloaded int
@@ -57,16 +37,17 @@ type Swarm struct {
 	peerMessageChan   chan PeerMessage
 	blockReceivedChan chan *messages.Piece
 	pendingPieces     map[int]*pieceData
+	pieceWriter       *pieceDataWriter
 }
 
 func requestPiece(writeChan chan<- messages.Message, p *torrent.Piece) {
 	bytesLeft := p.Length
 	offset := 0
 
-	for bytesLeft > PIECE_SIZE {
-		writeChan <- messages.NewRequest(p.Index, offset, PIECE_SIZE)
-		offset += PIECE_SIZE
-		bytesLeft -= PIECE_SIZE
+	for bytesLeft > BLOCK_SIZE {
+		writeChan <- messages.NewRequest(p.Index, offset, BLOCK_SIZE)
+		offset += BLOCK_SIZE
+		bytesLeft -= BLOCK_SIZE
 	}
 
 	if bytesLeft > 0 {
@@ -118,10 +99,8 @@ func (s *Swarm) monitorSwarm() {
 			continue
 		}
 
-		for i := 0; i < s.Stats.Pieces.Length(); i++ {
-			if s.Stats.Pieces.Get(i) == 0 && p.Pieces.Get(i) == 1 {
-				requestPiece(p.Peer.WriteChan, &s.Torrent.GeneratePieces()[i])
-			}
+		for i := range s.Torrent.GeneratePieces() {
+			requestPiece(p.Peer.WriteChan, &s.Torrent.GeneratePieces()[i])
 		}
 	}
 }
@@ -135,29 +114,40 @@ func (s *Swarm) handleNewBlock(msg *messages.Piece) {
 		s.pendingPieces[msg.Index] = pd
 	}
 
-	pd.write(msg.Block, msg.Begin)
+	pd.blocks = append(pd.blocks, msg)
 
-	// TODO: this is sloooow. Replace pd.bytesWritten with a bitfield of blocks received
-	// where each piece is about 250000 bytes per piece, there are only 15 blocks per piece
-	for i := 0; i < pd.bytesWritten.Length(); i++ {
-		if pd.bytesWritten.Get(i) == 0 {
+	if pd.Done() {
+		delete(s.pendingPieces, msg.Index)
+		fmt.Println("HEY I RECEIVED A FULL PIECE")
+		s.Stats.Pieces.Set(msg.Index, 1)
+		s.pieceWriter.Write(pd)
+
+		if msg.Index+1 == len(s.Torrent.GeneratePieces()) {
+			fmt.Println(s.Stats.Pieces.Bytes())
 			return
 		}
 	}
 
-	s.pendingPieces[msg.Index] = nil
-	fmt.Println("HEY I RECEIVED A FULL PIECE")
 }
 
 func (s *Swarm) Run() {
 	reqd := false
+
+	fs := torrent.NewFileStream("", s.Torrent.Files())
+	s.pieceWriter = newPieceDataWriter(fs)
+
+	go s.pieceWriter.Run()
+
 	for {
 		select {
 		case <-s.peerMessageChan:
 		case msg := <-s.blockReceivedChan:
 			// TODO: Cancel any pending requests for received block
 			s.handleNewBlock(msg)
-		default:
+		case err := <-s.pieceWriter.ErrorChan:
+			fmt.Printf("Received error when writing %s\n", err)
+		case <-time.NewTicker(1 * time.Second).C:
+			fmt.Println(runtime.NumGoroutine())
 			if !reqd && len(s.Peers) > 0 && !s.Peers[0].Choked {
 				s.monitorSwarm()
 				reqd = true

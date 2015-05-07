@@ -78,7 +78,7 @@ func (r *AnnounceRequest) announceUrl() (string, error) {
 	vals.Add("info_hash", string(r.InfoHash))
 	vals.Add("peer_id", string(r.PeerId))
 	//vals.Add("port", fmt.Sprintf("%d", r.Port))
-	vals.Add("port", fmt.Sprintf("%d", 9999))
+	vals.Add("port", fmt.Sprintf("%d", 54343))
 	vals.Add("uploaded", fmt.Sprintf("%d", r.Uploaded))
 	vals.Add("downloaded", fmt.Sprintf("%d", r.Downloaded))
 	//vals.Add("left", fmt.Sprintf("%d", r.Left))
