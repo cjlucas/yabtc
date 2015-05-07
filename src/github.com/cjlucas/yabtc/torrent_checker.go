@@ -2,9 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"os"
-	"time"
 
 	"github.com/cjlucas/yabtc/torrent"
 )
@@ -52,30 +49,4 @@ func (c *TorrentChecker) Check(root string, metadata *torrent.MetaData) (chan *T
 	go check(&fs, metadata.GeneratePieces(), progChan, quit)
 
 	return progChan, quit
-}
-
-func main() {
-	t, err := torrent.ParseFile(os.Args[1])
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(t.Info.Name)
-	fmt.Println(t.Files())
-
-	tc := TorrentChecker{}
-	ch, quit := tc.Check("/Users/chris/Downloads", t)
-	time.AfterFunc(1*time.Millisecond, func() {
-		quit <- true
-	})
-	for progress := range ch {
-		trues := 0
-		for _, b := range progress.Pieces {
-			if b {
-				trues++
-			}
-		}
-		fmt.Println(len(progress.Pieces))
-	}
-
-	fmt.Println("end")
 }
