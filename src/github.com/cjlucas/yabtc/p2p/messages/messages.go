@@ -24,6 +24,7 @@ const (
 type Message interface {
 	Id() int
 	Payload() []byte
+	decodePayload([]byte) error
 }
 
 type Generic struct {
@@ -92,36 +93,34 @@ func WriteTo(m Message, w io.Writer) error {
 func ParseBytes(bytes []byte) (Message, error) {
 	msgId := bytes[4]
 	payload := bytes[5:]
+
+	var msg Message
 	switch msgId {
 	case CHOKE_MSG_ID:
-		return NewChoke(), nil
+		msg = NewChoke()
 	case UNCHOKE_MSG_ID:
-		return NewUnchoke(), nil
+		msg = NewUnchoke()
 	case INTERESTED_MSG_ID:
-		return NewInterested(), nil
+		msg = NewInterested()
 	case NOT_INTERESTED_MSG_ID:
-		return NewNotInterested(), nil
+		msg = NewNotInterested()
 	case HAVE_MSG_ID:
-		msg := &Have{}
-		return msg, msg.decodePayload(payload)
+		msg = &Have{}
 	case BITFIELD_MSG_ID:
-		msg := &Bitfield{}
-		return msg, msg.decodePayload(payload)
+		msg = &Bitfield{}
 	case REQUEST_MSG_ID:
-		msg := &Request{}
-		return msg, msg.decodePayload(payload)
+		msg = &Request{}
 	case PIECE_MSG_ID:
-		msg := &Piece{}
-		return msg, msg.decodePayload(payload)
+		msg = &Piece{}
 	case CANCEL_MSG_ID:
-		msg := &Cancel{}
-		return msg, msg.decodePayload(payload)
+		msg = &Cancel{}
 	case PORT_MSG_ID:
-		msg := &Port{}
-		return msg, msg.decodePayload(payload)
+		msg = &Port{}
 	default:
-		return &Generic{int(msgId), payload}, nil
+		msg = &Generic{}
 	}
+
+	return msg, msg.decodePayload(payload)
 }
 
 func NewChoke() *Choke {

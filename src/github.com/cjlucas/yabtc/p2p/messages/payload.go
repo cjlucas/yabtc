@@ -61,6 +61,16 @@ func (m *Port) Payload() []byte {
 	return out[:]
 }
 
+func (m *Choke) decodePayload([]byte) error         { return nil }
+func (m *Unchoke) decodePayload([]byte) error       { return nil }
+func (m *Interested) decodePayload([]byte) error    { return nil }
+func (m *NotInterested) decodePayload([]byte) error { return nil }
+
+func (m *Generic) decodePayload(payload []byte) error {
+	m.payload = payload
+	return nil
+}
+
 func (m *Have) decodePayload(payload []byte) error {
 	if len(payload) < 4 {
 		return invalidPayloadError
