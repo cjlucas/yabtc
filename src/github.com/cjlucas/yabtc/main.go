@@ -38,7 +38,7 @@ func main() {
 
 	tm := NewTrackerManager()
 
-	t, _ := torrent.ParseFile(os.Args[1])
+	t, _ := torrent.ParseFile(os.Args[len(os.Args)-1])
 	sm.AddTorrent(t)
 
 	peerId := []byte("-AZ2060-000000000000")
